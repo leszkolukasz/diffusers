@@ -10,9 +10,11 @@ import torch.optim as optim
 import torchvision
 from tqdm import tqdm
 
-from src.schedule import LinearAlphaSchedule, LinearSigmaSchedule, SchedulePack, CosineAlphaSchedule, CosineSigmaSchedule
+from src.schedule import LinearAlphaSchedule, LinearSigmaSchedule, ScheduleGroup, CosineAlphaSchedule, CosineSigmaSchedule
 from src.denoiser import Denoiser, DiscreteDenoiser, EulerMaruyamaSDEDenoiser, EulerODEDenoiser, HeunODEDenoiser, HeunSDEDenoiser
 from src.model import ErrorPredictorUNet, PersistableModule
+from src.timestep import Timestep
+from src.generator import Generator
 
 BATCH_SIZE = 512
 EPOCHS = 1000
@@ -48,7 +50,7 @@ SCHEDULE_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "discrete"
+DENOISER_CONFIG_NAME = "heun_sde"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
 SCHEDULE_CONFIG_NAME = "cosine"
@@ -68,36 +70,22 @@ def get_dataloader(batch_size=BATCH_SIZE, shuffle=True, num_workers=2):
     return loader
 
 # Input: x0 (batch_size, C, H, W), t (batch_size,)
-def diffuse(x0: Tensor, t: Tensor, schedules: SchedulePack):
+def diffuse(x0: Tensor, t: Timestep, schedules: ScheduleGroup):
     noise = torch.randn_like(x0)
     alpha = schedules.alpha(t).view(-1, 1, 1, 1)
     sigma = schedules.sigma(t).view(-1, 1, 1, 1)
 
     return alpha * x0 + sigma * noise, noise
     
-def generate(denoiser: Denoiser, n_samples=16):
-    x_t = torch.randn(n_samples, 1, 28, 28).cuda()
-
-    # Skip t=T as it results in infinite values
-    # SKip t=1 as Heun has problems with it
-    for t in reversed(range(2, MAX_T)):
-        t_batch = torch.full((n_samples,), t, device=x_t.device, dtype=torch.long)
-        x_t = denoiser.denoise(x_t, t_batch)
-
-    x_t = unnormalize(x_t.cpu())
-
-    return x_t
-
-    
 def train():
     trainloader = get_dataloader()
 
-    schedules = SchedulePack(
-        alpha_schedule=schedule_config["alpha_schedule"](MAX_T),
-        sigma_schedule=schedule_config["sigma_schedule"](MAX_T),
+    schedules = ScheduleGroup(
+        alpha_schedule=schedule_config["alpha_schedule"],
+        sigma_schedule=schedule_config["sigma_schedule"],
     )
         
-    model: PersistableModule = ErrorPredictorUNet().cuda()
+    model: PersistableModule = ErrorPredictorUNet(MAX_T).cuda()
     model.try_load()
 
     optimizer = optim.AdamW(model.parameters(), lr=1e-4)
@@ -132,30 +120,36 @@ def train():
     model.save()
 
 def test():
-    if not os.path.exists(f"generated_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
-        os.makedirs(f"generated_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
+    if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
+        os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    model: PersistableModule = ErrorPredictorUNet().cuda()
+    model: PersistableModule = ErrorPredictorUNet(MAX_T).cuda()
     model.load()
     model.eval()
 
-    schedules = SchedulePack(
-        alpha_schedule=schedule_config["alpha_schedule"](MAX_T),
-        sigma_schedule=schedule_config["sigma_schedule"](MAX_T),
+    schedules = ScheduleGroup(
+        alpha_schedule=schedule_config["alpha_schedule"](),
+        sigma_schedule=schedule_config["sigma_schedule"](),
     )
 
     denoiser: Denoiser = denoiser_config["denoiser"](
         model=model,
-        max_t=MAX_T,
         schedules=schedules,
     )
 
+    generator = Generator(
+        denoiser=denoiser,
+        n_channels=1,
+        img_width=28,
+        img_height=28,
+    )
+
     n_samples = 16
-    generated = generate(denoiser, n_samples=n_samples)
+    generated = generator.generate(n_samples=n_samples, n_steps=MAX_T)
 
     for i in range(n_samples):
         img = generated[i]
-        torchvision.utils.save_image(img, f"generated_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i+1}.png")
+        torchvision.utils.save_image(img, f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i+1}.png")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "test":

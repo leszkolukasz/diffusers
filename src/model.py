@@ -4,6 +4,7 @@ import os
 import torch
 from torch import nn
 from diffusers.models import UNet2DModel
+from src.timestep import TimestepConfig, Timestep
 
 class PersistableModule(nn.Module):
     file_name: str
@@ -19,8 +20,10 @@ class PersistableModule(nn.Module):
             self.load()
 
 class ErrorPredictor(PersistableModule, ABC):
+    timestep_config: TimestepConfig
+
     @abstractmethod
-    def forward(self, x: torch.Tensor, timestep: torch.LongTensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
         pass
 
 class SimpleErrorPredictor(ErrorPredictor):
@@ -28,6 +31,7 @@ class SimpleErrorPredictor(ErrorPredictor):
 
     def __init__(self):
         super().__init__()
+        self.timestep_config = TimestepConfig(kind="discrete", max_t=0)
         self.downsample = nn.Sequential(
             nn.Conv2d(1, 32, 3, stride=2, padding=1),
             nn.ReLU(),
@@ -41,18 +45,18 @@ class SimpleErrorPredictor(ErrorPredictor):
             nn.ReLU(),
         )
 
-    def forward(self, x: torch.Tensor, _timestep: torch.LongTensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, _timestep: Timestep) -> torch.Tensor:
         x = self.downsample(x)
         x = self.upsample(x)
         return x
     
 # Model is conditioned on timestep from range [0, max_steps] inclusive.
 class ErrorPredictorUNet(ErrorPredictor):
-    max_steps: int
+    timestep_config: TimestepConfig
 
     def __init__(self, max_steps: int, suffix: str = ""):
         super().__init__()
-        self.max_steps = max_steps
+        self.timestep_config = TimestepConfig(kind="discrete", max_t=max_steps)
         self.file_name = f"error_predictor_unet_{max_steps}{suffix}.pth"
         self.unet = UNet2DModel(
             sample_size=28,
@@ -73,11 +77,6 @@ class ErrorPredictorUNet(ErrorPredictor):
         )
 
     # Input: (batch_size, C, H, W)
-    def forward(self, x: torch.Tensor, timestep: torch.LongTensor) -> torch.Tensor:
-        if torch.any(timestep > self.max_steps) or torch.any(timestep < 0):
-            raise ValueError(f"Timestep must be in range [0, {self.max_steps}]")
-        
-        if torch.dtype(timestep) != torch.long:
-            raise ValueError("Timestep must be of type torch.LongTensor")
-
-        return self.unet(x, timestep=timestep).sample
+    def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
+        timestep = timestep.adapt(self.timestep_config)
+        return self.unet(x, timestep=timestep.steps).sample

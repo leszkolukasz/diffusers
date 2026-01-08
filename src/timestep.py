@@ -7,22 +7,33 @@ import torch
 @dataclass
 class TimestepConfig:
     kind: Literal["discrete", "continuous"]
-    max_value: int | float
+    max_t: int | float
 
 @dataclass
 class Timestep:
     config: TimestepConfig
-    values: torch.Tensor
+    steps: torch.Tensor
 
     def adapt(self, new_config: TimestepConfig) -> Self:
-        if self.config.kind == new_config.kind and self.config.max_value == new_config.max_value:
+        if self.config.kind == new_config.kind and self.config.max_t == new_config.max_t:
             return self
+        
+        adapted_steps = self.steps.float() / float(self.config.max_t) * float(new_config.max_t)
 
-        if self.config.kind == "discrete" and new_config.kind == "continuous":
-            adapted_values = self.values.float() / self.config.max_value * new_config.max_value
-        elif self.config.kind == "continuous" and new_config.kind == "discrete":
-            adapted_values = (self.values / self.config.max_value * new_config.max_value).long()
-        else:
-            raise ValueError(f"Unsupported conversion from {self.config} to {new_config}")
+        if new_config.kind == "discrete":
+            adapted_steps = adapted_steps.long()
 
-        return Timestep(config=new_config, values=adapted_values)
+        return Timestep(config=new_config, steps=adapted_steps)
+    
+    def as_discrete(self, max_t) -> Self:
+        return self.adapt(TimestepConfig(kind="discrete", max_t=max_t))
+
+    def as_continuous(self) -> Self:
+        return self.adapt(TimestepConfig(kind="continuous", max_t=1.0))
+
+    def __len__(self):
+        return self.steps.size(0)
+    
+    def __getitem__(self, idx) -> Self:
+        assert 0 <= idx < len(self), "Index out of range"
+        return Timestep(config=self.config, steps=self.steps[idx:idx+1])
