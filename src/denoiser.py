@@ -4,7 +4,10 @@ import torch
 
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
-from src.model import ErrorPredictor
+from src.model import ErrorPredictor, ModuleMetadata
+
+from loguru import logger
+
 
 class Denoiser(ABC):
     model: ErrorPredictor
@@ -18,6 +21,15 @@ class Denoiser(ABC):
     ):
         self.model = model
         self.schedules = schedules
+
+        alpha_schedule_meta = model.metadata.get(ModuleMetadata.AlphaSchedule, None)
+        sigma_schedule_meta = model.metadata.get(ModuleMetadata.SigmaSchedule, None)
+
+        if alpha_schedule_meta is not None and schedules.alpha.__class__.__name__ != alpha_schedule_meta:
+            logger.warning(f"Denoiser model was trained with alpha schedule '{alpha_schedule_meta}', but current schedule is '{schedules.alpha.__class__.__name__}'")
+            
+        if sigma_schedule_meta is not None and schedules.sigma.__class__.__name__ != sigma_schedule_meta:
+            logger.warning(f"Denoiser model was trained with sigma schedule '{sigma_schedule_meta}', but current schedule is '{schedules.sigma.__class__.__name__}'")
 
     # Assumes t_prev < t
     @torch.no_grad()
