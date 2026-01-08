@@ -1,17 +1,29 @@
 import os
 import sys
 
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
 import torchvision
-
-from src.schedule import LinearAlphaSchedule, LinearSigmaSchedule, ScheduleGroup, CosineAlphaSchedule, CosineSigmaSchedule
-from src.denoiser import Denoiser, DiscreteDenoiser, EulerMaruyamaSDEDenoiser, EulerODEDenoiser, HeunODEDenoiser, HeunSDEDenoiser
-from src.model import ErrorPredictorUNet, PersistableModule, ErrorPredictor
-from src.generator import Generator
-from src.trainer import Trainer
-
 from loguru import logger
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+
+from src.denoiser import (
+    Denoiser,
+    DiscreteDenoiser,
+    EulerMaruyamaSDEDenoiser,
+    EulerODEDenoiser,
+    HeunODEDenoiser,
+    HeunSDEDenoiser,
+)
+from src.generator import Generator
+from src.model import ErrorPredictor, ErrorPredictorUNet
+from src.schedule import (
+    CosineAlphaSchedule,
+    CosineSigmaSchedule,
+    LinearAlphaSchedule,
+    LinearSigmaSchedule,
+    ScheduleGroup,
+)
+from src.trainer import Trainer
 
 BATCH_SIZE = 512
 MAX_T = 1000
@@ -54,24 +66,31 @@ schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
 unnormalize = transforms.Normalize((-NORM_MEAN / NORM_STD,), (1.0 / NORM_STD,))
 
+
 def get_dataloader(batch_size=BATCH_SIZE, shuffle=True, num_workers=2):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((NORM_MEAN,), (NORM_STD,))
-    ])
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((NORM_MEAN,), (NORM_STD,))]
+    )
 
     data = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
-    loader = DataLoader(data, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True)
+    loader = DataLoader(
+        data,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
 
     return loader
+
 
 def train():
     logger.info("Starting training")
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
     schedules = ScheduleGroup(
-        alpha_schedule=schedule_config["alpha_schedule"](),
-        sigma_schedule=schedule_config["sigma_schedule"](),
+        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
+        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
     )
 
     logger.info(f"Using MAX_T: {MAX_T}")
@@ -89,19 +108,22 @@ def train():
 
     logger.success("Training complete")
 
+
 def test():
     if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
     # model: PersistableModule = ErrorPredictorUNet(max_steps=MAX_T).cuda()
     # model.load()
-    model = ErrorPredictor.load_from_file("./models/error_predictor_unettest.pth").cuda()
+    model = ErrorPredictor.load_from_file(
+        "./models/error_predictor_unettest.pth"
+    ).cuda()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
     schedules = ScheduleGroup(
-        alpha_schedule=schedule_config["alpha_schedule"](),
-        sigma_schedule=schedule_config["sigma_schedule"](),
+        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
+        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
     )
 
     logger.info(f"Using denoiser config: {DENOISER_CONFIG_NAME}")
@@ -122,7 +144,10 @@ def test():
 
     for i in range(n_samples):
         img = generated[i]
-        torchvision.utils.save_image(img, f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i+1}.png")
+        torchvision.utils.save_image(
+            img, f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i + 1}.png"
+        )
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "test":

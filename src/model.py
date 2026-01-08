@@ -1,19 +1,20 @@
+import os
 from abc import ABC, abstractmethod
 from enum import StrEnum
-import os
 from typing import Self
 
 import torch
-from torch import nn
 from diffusers.models import UNet2DModel
-from src.timestep import TimestepConfig, Timestep
-
 from loguru import logger
+from torch import nn
+
+from src.timestep import Timestep, TimestepConfig
 
 
 class ModuleMetadata(StrEnum):
     AlphaSchedule = "alpha_schedule"
     SigmaSchedule = "sigma_schedule"
+
 
 class PersistableModule(nn.Module):
     file_name: str
@@ -22,10 +23,7 @@ class PersistableModule(nn.Module):
     def save(self, **extra_metadata):
         checkpoint = {
             "state_dict": self.state_dict(),
-            "config": {
-                "type": self.__class__.__name__,
-                **extra_metadata
-            }
+            "config": {"type": self.__class__.__name__, **extra_metadata},
         }
         torch.save(checkpoint, f"models/{self.file_name}")
 
@@ -36,7 +34,9 @@ class PersistableModule(nn.Module):
 
         type_name = self.metadata.get("type", None)
         if type_name is not None and type_name != self.__class__.__name__:
-            logger.warning(f"Loaded model type '{type_name}' does not match current class '{self.__class__.__name__}'")
+            logger.warning(
+                f"Loaded model type '{type_name}' does not match current class '{self.__class__.__name__}'"
+            )
 
     def try_load(self):
         if os.path.exists(f"models/{self.file_name}"):
@@ -56,24 +56,27 @@ class PersistableModule(nn.Module):
 
         target_class = cls._get_subclass_by_name(type_name)
         model = target_class(**config)
-                
+
         model.load_state_dict(checkpoint["state_dict"])
         model.metadata = config
         model.file_name = os.path.basename(file_path)
-        
+
         return model
 
     @classmethod
     def _get_subclass_by_name(cls, name: str):
         if cls.__name__ == name:
             return cls
-        
+
         for subclass in cls.__subclasses__():
             found = subclass._get_subclass_by_name(name)
             if found:
                 return found
-        
-        raise ValueError(f"Class '{name}' not found in subclass hierarchy of {cls.__name__}")
+
+        raise ValueError(
+            f"Class '{name}' not found in subclass hierarchy of {cls.__name__}"
+        )
+
 
 class ErrorPredictor(PersistableModule, ABC):
     timestep_config: TimestepConfig
@@ -84,21 +87,24 @@ class ErrorPredictor(PersistableModule, ABC):
 
     def save(self, **extra_metadata):
         super().save(max_t=self.timestep_config.max_t, **extra_metadata)
-    
+
     def load(self):
         super().load()
         meta_max_t = self.metadata.get("max_t", None)
         if meta_max_t is not None and meta_max_t != self.timestep_config.max_t:
-            logger.warning(f"Loaded model max_t '{meta_max_t}' does not match current timestep_config.max_t '{self.timestep_config.max_t}'")
+            logger.warning(
+                f"Loaded model max_t '{meta_max_t}' does not match current timestep_config.max_t '{self.timestep_config.max_t}'"
+            )
 
     @classmethod
-    def load_from_file(cls, file_path: str) -> Self:
+    def load_from_file(cls, file_path: str) -> "ErrorPredictor":
         instance = super().load_from_file(file_path)
 
         if not issubclass(instance.__class__, ErrorPredictor):
             raise ValueError(f"Loaded model from {file_path} is not an ErrorPredictor")
 
         return instance
+
 
 # Model is conditioned on timestep from range [0, max_t] inclusive.
 class ErrorPredictorUNet(ErrorPredictor):
@@ -107,7 +113,9 @@ class ErrorPredictorUNet(ErrorPredictor):
     def __init__(self, *, max_t: int, suffix: str | None = None, **_kwargs):
         super().__init__()
         self.timestep_config = TimestepConfig(kind="discrete", max_t=max_t)
-        self.file_name = f"error_predictor_unet{suffix if suffix is not None else ''}.pth"
+        self.file_name = (
+            f"error_predictor_unet{suffix if suffix is not None else ''}.pth"
+        )
         self.unet = UNet2DModel(
             sample_size=28,
             in_channels=1,

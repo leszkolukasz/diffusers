@@ -4,32 +4,36 @@ import torch
 
 from src.timestep import Timestep, TimestepConfig
 
+
 class AlphaSchedule(ABC):
     timestep_config: TimestepConfig = TimestepConfig(kind="continuous", max_t=1.0)
 
     @abstractmethod
     def __call__(self, t: Timestep) -> torch.Tensor:
         pass
-    
+
     @abstractmethod
     def derivative(self, t: Timestep) -> torch.Tensor:
         pass
 
+
 class LinearAlphaSchedule(AlphaSchedule):
     def __call__(self, t: Timestep):
         return 1.0 - t.adapt(self.timestep_config).steps
-    
+
     def derivative(self, t: Timestep):
         return torch.tensor(-1.0, device=t.steps.device)
-    
+
+
 class CosineAlphaSchedule(AlphaSchedule):
     def __call__(self, t: Timestep):
         adapted_t = t.adapt(self.timestep_config)
         return torch.cos(adapted_t.steps * (torch.pi / 2))
-    
+
     def derivative(self, t: Timestep):
         adapted_t = t.adapt(self.timestep_config)
-        return - torch.pi / 2 * torch.sin(adapted_t.steps * (torch.pi / 2))
+        return -torch.pi / 2 * torch.sin(adapted_t.steps * (torch.pi / 2))
+
 
 class SigmaSchedule(ABC):
     timestep_config: TimestepConfig = TimestepConfig(kind="continuous", max_t=1.0)
@@ -37,23 +41,25 @@ class SigmaSchedule(ABC):
     @abstractmethod
     def __call__(self, t: Timestep) -> torch.Tensor:
         pass
-    
+
     @abstractmethod
     def derivative(self, t: Timestep) -> torch.Tensor:
         pass
 
+
 class LinearSigmaSchedule(SigmaSchedule):
     def __call__(self, t: Timestep):
         return t.adapt(self.timestep_config).steps
-    
+
     def derivative(self, t: Timestep):
         return torch.tensor(1.0, device=t.steps.device)
-    
+
+
 class CosineSigmaSchedule(SigmaSchedule):
     def __call__(self, t: Timestep):
         adapted_t = t.adapt(self.timestep_config)
         return torch.sin(adapted_t.steps * (torch.pi / 2))
-    
+
     def derivative(self, t: Timestep):
         adapted_t = t.adapt(self.timestep_config)
         return torch.pi / 2 * torch.cos(adapted_t.steps * (torch.pi / 2))
@@ -78,6 +84,7 @@ class LambdaSchedule:
         d_alpha = self.alpha.derivative(t)
         d_sigma = self.sigma.derivative(t)
         return 2 * (d_alpha / alpha - d_sigma / sigma)
+
 
 class ScheduleGroup:
     alpha: AlphaSchedule
