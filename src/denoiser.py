@@ -4,19 +4,19 @@ from abc import ABC, abstractmethod
 import torch
 from loguru import logger
 
-from src.model import ErrorPredictor, ModuleMetadata
+from src.model import ModuleMetadata, NoisePredictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
 
 class Denoiser(ABC):
-    model: ErrorPredictor
+    model: NoisePredictor
     schedules: ScheduleGroup
 
     def __init__(
         self,
         *,
-        model: ErrorPredictor,
+        model: NoisePredictor,
         schedules: ScheduleGroup,
     ):
         self.model = model
@@ -64,10 +64,10 @@ class DiscreteDenoiser(Denoiser):
 
         # Assumes eta = 1
 
-        err_pred = self.model(x_t, timestep=t)
+        noise_pred = self.model(x_t, timestep=t)
         mean = (
             alpha_t_prev / alpha_t
-        ) * x_t - sigma_t * alpha_t_prev / alpha_t * err_pred
+        ) * x_t - sigma_t * alpha_t_prev / alpha_t * noise_pred
 
         noise = torch.randn_like(x_t) * sigma_t_prev
 
@@ -89,8 +89,8 @@ class EulerODEDenoiser(ContinuousDenoiser):
 
         h = t_prev.steps.view(-1, 1, 1, 1) - t.steps.view(-1, 1, 1, 1)
 
-        err_pred = self.model(x_t, timestep=t)
-        f = d_alpha_t / alpha_t * x_t - d_lambda_t * sigma_t / 2 * err_pred
+        noise_pred = self.model(x_t, timestep=t)
+        f = d_alpha_t / alpha_t * x_t - d_lambda_t * sigma_t / 2 * noise_pred
         x_t_prev = x_t + h * f
 
         return x_t_prev
@@ -106,8 +106,8 @@ class HeunODEDenoiser(ContinuousDenoiser):
             sigma_t = self.schedules.sigma(t).view(-1, 1, 1, 1)
             d_lambda_t = self.schedules.lambda_.derivative(t).view(-1, 1, 1, 1)
 
-            err_pred = self.model(x_t, timestep=t)
-            return d_alpha_t / alpha_t * x_t - d_lambda_t * sigma_t / 2 * err_pred
+            noise_pred = self.model(x_t, timestep=t)
+            return d_alpha_t / alpha_t * x_t - d_lambda_t * sigma_t / 2 * noise_pred
 
         k1 = f(x_t, t)
         k2 = f(x_t + h * k1, t_prev)
@@ -126,10 +126,10 @@ class EulerMaruyamaSDEDenoiser(ContinuousDenoiser):
         h = t_prev.steps.view(-1, 1, 1, 1) - t.steps.view(-1, 1, 1, 1)
         eta_t_inf = 1.0
 
-        err_pred = self.model(x_t, timestep=t)
+        noise_pred = self.model(x_t, timestep=t)
         drift = (
             d_alpha_t / alpha_t * x_t
-            + sigma_t * (eta_t_inf**2 - d_lambda_t) / 2 * err_pred
+            + sigma_t * (eta_t_inf**2 - d_lambda_t) / 2 * noise_pred
         )
         diffusion = sigma_t * eta_t_inf * math.sqrt(-h) * torch.randn_like(x_t)
 
@@ -149,10 +149,10 @@ class HeunSDEDenoiser(ContinuousDenoiser):
             sigma_t = self.schedules.sigma(t).view(-1, 1, 1, 1)
             d_lambda_t = self.schedules.lambda_.derivative(t).view(-1, 1, 1, 1)
 
-            err_pred = self.model(x_t, timestep=t)
+            noise_pred = self.model(x_t, timestep=t)
             return (
                 d_alpha_t / alpha_t * x_t
-                + sigma_t * (eta_t_inf**2 - d_lambda_t) / 2 * err_pred
+                + sigma_t * (eta_t_inf**2 - d_lambda_t) / 2 * noise_pred
             )
 
         def diffusion(t: Timestep):

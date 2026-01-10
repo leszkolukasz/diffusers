@@ -1,0 +1,195 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Generator
+
+import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from src.common import DiffusionMixin, get_device
+from src.denoiser import Denoiser
+from src.timestep import Timestep, TimestepConfig
+
+EPSILON = 1e-6
+
+
+class SamplingSchedule(ABC):
+    @abstractmethod
+    def get_timesteps(self, n_steps: int) -> Timestep:
+        pass
+
+
+class LinearSamplingSchedule(SamplingSchedule):
+    def get_timesteps(self, n_steps: int) -> Timestep:
+        steps = torch.linspace(1.0 - EPSILON, EPSILON, n_steps)
+        return Timestep(TimestepConfig(kind="continuous", max_t=1.0), steps)
+
+
+@dataclass
+class AYSConfig:
+    max_iter: int = 300
+    device: torch.device = get_device()
+    n_candidates: int = 11
+    n_monte_carlo_iter: int = 1000
+
+
+class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
+    denoiser: Denoiser
+    dataloader: DataLoader
+    timestep_config = TimestepConfig(kind="continuous", max_t=1.0)
+
+    def __init__(
+        self,
+        denoiser: Denoiser,
+        dataloader: DataLoader,
+        config: AYSConfig = AYSConfig(),
+    ):
+        self.denoiser = denoiser
+        self.dataloader = dataloader
+        self.config = config
+
+    def get_timesteps(self, n_steps: int = 10) -> Timestep:
+        t = torch.linspace(EPSILON, 1.0 - EPSILON, n_steps + 1)
+
+        t = self._get_10_timesteps(t)
+
+        if n_steps <= 10:
+            return self._interpolate_timesteps(t, n_steps)
+
+        t = self._get_20_timesteps(t)
+
+        if n_steps <= 20:
+            return self._interpolate_timesteps(t, n_steps)
+
+        t = self._get_40_timesteps(t)
+
+        return self._interpolate_timesteps(t, n_steps)
+
+    def _get_10_timesteps(self, initial_steps: torch.Tensor) -> torch.Tensor:
+        pbar_outer = tqdm(range(self.config.max_iter), desc="AYS 10-step")
+
+        no_change = False
+        current_iter = 0
+
+        while not no_change and current_iter < self.config.max_iter:
+            no_change = True
+            current_iter += 1
+
+            t_indices = range(1, len(initial_steps) - 1)
+            pbar_steps = tqdm(
+                t_indices, desc=f"Iter {current_iter}: Steps", leave=False
+            )
+
+            for i in pbar_steps:
+                t_prev = initial_steps[i - 1].item()
+                t = initial_steps[i].item()
+                t_next = initial_steps[i + 1].item()
+
+                candidates = self._get_candidates(t_prev, t, t_next)
+                klub_per_candidate = []
+
+                pbar_steps.set_description(f"Iter {current_iter}: Optimizing t_{i}")
+
+                pbar_candidates = tqdm(candidates, desc="Candidates", leave=False)
+                for cand in pbar_candidates:
+                    pbar_candidates.set_description(
+                        f"t_{i} candidate: {cand.item():.4f}"
+                    )
+
+                    klub = self._estimate_klub(t_prev, cand.item())
+                    klub += self._estimate_klub(cand.item(), t_next)
+                    klub_per_candidate.append(klub)
+
+                argmin = int(torch.argmin(torch.tensor(klub_per_candidate)).item())
+
+                if candidates[argmin].item() != t:
+                    initial_steps[i] = candidates[argmin]
+                    no_change = False
+
+            pbar_outer.update(1)
+
+        pbar_outer.close()
+
+        return initial_steps
+
+    def _get_20_timesteps(self, steps_10: torch.Tensor) -> torch.Tensor:  # ty: ignore
+        pass
+
+    def _get_40_timesteps(self, steps_20: torch.Tensor) -> torch.Tensor:  # ty: ignore
+        pass
+
+    # how many steps to start from ?
+    def _interpolate_timesteps(self, steps: torch.Tensor, n_steps: int) -> Timestep:
+        return Timestep(self.timestep_config, steps)
+
+    def _get_candidates(self, t_prev: float, t: float, t_next: float) -> torch.Tensor:
+        candidates = torch.linspace(
+            t_prev + EPSILON, t_next - EPSILON, self.config.n_candidates - 1
+        )
+        candidates = torch.cat([torch.tensor([t]), candidates])
+
+        return candidates.sort().values
+
+    def _estimate_klub(self, t_start: float, t_end: float) -> float:
+        klub_sum = 0.0
+        sample_count = 0
+
+        for X in self._get_data_samples():
+            # TODO: Add importance sampling
+            t_samples = (
+                torch.rand(X.size(0), device=X.device) * (t_end - t_start) + t_start
+            )
+            timestep_samples = Timestep(self.timestep_config, t_samples)
+            timestep_end = Timestep(
+                self.timestep_config, torch.tensor([t_end], device=X.device)
+            )
+
+            # (batch, channels, height, width)
+            X_t, _ = self.diffuse(
+                X,
+                timestep_samples,
+                self.denoiser.schedules,
+            )
+
+            X_t_end = self.diffuse_from(
+                X,
+                X_t,
+                timestep_samples,
+                timestep_end,
+                self.denoiser.schedules,
+            )
+
+            noise_t = self.denoiser.model(X_t, timestep=timestep_samples)
+            noise_t_end = self.denoiser.model(
+                X_t_end,
+                timestep=timestep_end,
+            )
+
+            noise_diff_norm = (noise_t_end - noise_t).view(X.size(0), -1).norm(
+                dim=1
+            ) ** 2
+
+            likelihood = 1 / (t_end - t_start)
+            integral = (
+                -0.5
+                * (
+                    self.denoiser.schedules.lambda_.derivative(timestep_samples)
+                    * noise_diff_norm
+                )
+                / likelihood
+            )
+
+            klub_sum += integral.sum().item()
+            sample_count += X.size(0)
+
+        return klub_sum / sample_count
+
+    def _get_data_samples(self) -> Generator[torch.Tensor, None, None]:
+        count = 0
+        while count < self.config.n_monte_carlo_iter:
+            for batch_idx, (X, _) in enumerate(self.dataloader):
+                X = X.to(self.config.device)
+                yield X
+                count += X.size(0)
+                if count >= self.config.n_monte_carlo_iter:
+                    break

@@ -78,7 +78,7 @@ class PersistableModule(nn.Module):
         )
 
 
-class ErrorPredictor(PersistableModule, ABC):
+class NoisePredictor(PersistableModule, ABC):
     timestep_config: TimestepConfig
 
     @abstractmethod
@@ -97,24 +97,24 @@ class ErrorPredictor(PersistableModule, ABC):
             )
 
     @classmethod
-    def load_from_file(cls, file_path: str) -> "ErrorPredictor":
+    def load_from_file(cls, file_path: str) -> "NoisePredictor":
         instance = super().load_from_file(file_path)
 
-        if not issubclass(instance.__class__, ErrorPredictor):
-            raise ValueError(f"Loaded model from {file_path} is not an ErrorPredictor")
+        if not issubclass(instance.__class__, NoisePredictor):
+            raise ValueError(f"Loaded model from {file_path} is not an NoisePredictor")
 
         return instance
 
 
 # Model is conditioned on timestep from range [0, max_t] inclusive.
-class ErrorPredictorUNet(ErrorPredictor):
+class NoisePredictorUNet(NoisePredictor):
     timestep_config: TimestepConfig
 
     def __init__(self, *, max_t: int, suffix: str | None = None, **_kwargs):
         super().__init__()
         self.timestep_config = TimestepConfig(kind="discrete", max_t=max_t)
         self.file_name = (
-            f"error_predictor_unet{suffix if suffix is not None else ''}.pth"
+            f"noise_predictor_unet{suffix if suffix is not None else ''}.pth"
         )
         self.unet = UNet2DModel(
             sample_size=28,

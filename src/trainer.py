@@ -4,11 +4,12 @@ from typing import Iterable, Protocol
 
 import torch
 from loguru import logger
-from torch import Tensor, nn, optim
+from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.model import ErrorPredictor, ModuleMetadata
+from src.common import DiffusionMixin
+from src.model import ModuleMetadata, NoisePredictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
@@ -25,10 +26,10 @@ class TrainingConfig:
     checkpoint_interval_steps: int = 5
 
 
-class Trainer:
+class Trainer(DiffusionMixin):
     def __init__(
         self,
-        model: ErrorPredictor,
+        model: NoisePredictor,
         schedules: ScheduleGroup,
         config: TrainingConfig = TrainingConfig(),
     ):
@@ -104,9 +105,9 @@ class Trainer:
                 t = Timestep(self.model.timestep_config, t)
 
                 X_noisy, noise = self.diffuse(X, t, self.schedules)
-                err_pred = self.model(X_noisy, timestep=t)
+                noise_pred = self.model(X_noisy, timestep=t)
 
-                loss = self.criterion(err_pred, noise)
+                loss = self.criterion(noise_pred, noise)
                 loss.backward()
 
                 self.optimizer.step()
@@ -124,10 +125,3 @@ class Trainer:
                 self.total_steps_executed += 1
 
         self.save_checkpoint()
-
-    def diffuse(self, x0: Tensor, t: Timestep, schedules: ScheduleGroup):
-        noise = torch.randn_like(x0)
-        alpha = schedules.alpha(t).view(-1, 1, 1, 1)
-        sigma = schedules.sigma(t).view(-1, 1, 1, 1)
-
-        return alpha * x0 + sigma * noise, noise

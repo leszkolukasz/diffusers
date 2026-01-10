@@ -15,7 +15,8 @@ from src.denoiser import (
     HeunSDEDenoiser,
 )
 from src.generator import Generator
-from src.model import ErrorPredictor, ErrorPredictorUNet
+from src.model import NoisePredictor, NoisePredictorUNet
+from src.sampling import AYSConfig, AYSSamplingSchedule
 from src.schedule import (
     CosineAlphaSchedule,
     CosineSigmaSchedule,
@@ -58,7 +59,7 @@ SCHEDULE_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "heun"
+DENOISER_CONFIG_NAME = "euler"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
 SCHEDULE_CONFIG_NAME = "cosine"
@@ -94,7 +95,7 @@ def train():
     )
 
     logger.info(f"Using MAX_T: {MAX_T}")
-    model = ErrorPredictorUNet(max_t=MAX_T, suffix="test").cuda()
+    model = NoisePredictorUNet(max_t=MAX_T, suffix="test").cuda()
     model.try_load()
 
     trainer = Trainer(
@@ -113,10 +114,10 @@ def test():
     if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    # model: PersistableModule = ErrorPredictorUNet(max_steps=MAX_T).cuda()
+    # model: PersistableModule = NoisePredictorUNet(max_steps=MAX_T).cuda()
     # model.load()
-    model = ErrorPredictor.load_from_file(
-        "./models/error_predictor_unettest.pth"
+    model = NoisePredictor.load_from_file(
+        "./models/noise_predictor_unettest.pth"
     ).cuda()
     model.eval()
 
@@ -149,8 +150,46 @@ def test():
         )
 
 
+def ays():
+    model = NoisePredictorUNet(max_t=MAX_T).cuda()
+    model.eval()
+
+    logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
+    schedules = ScheduleGroup(
+        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
+        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
+    )
+
+    logger.info(f"Using denoiser config: {DENOISER_CONFIG_NAME}")
+    denoiser: Denoiser = denoiser_config["denoiser"](
+        model=model,
+        schedules=schedules,
+    )
+
+    ays_schedule = AYSSamplingSchedule(
+        denoiser=denoiser,
+        dataloader=get_dataloader(batch_size=64, shuffle=False),
+        config=AYSConfig(max_iter=1),
+    )
+
+    timesteps = ays_schedule.get_timesteps()
+    print(timesteps)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        test()
-    else:
-        train()
+    mode = "train"
+
+    if len(sys.argv) == 0:
+        raise ValueError("Please provide a mode: train, test, ays")
+
+    mode = sys.argv[1]
+
+    match mode:
+        case "train":
+            train()
+        case "test":
+            test()
+        case "ays":
+            ays()
+        case _:
+            logger.error(f"Unknown mode: {mode}")
