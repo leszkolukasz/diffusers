@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from loguru import logger
+
 import torch
 
 
@@ -21,6 +23,15 @@ class Timestep:
             and self.config.max_t == new_config.max_t
         ):
             return self
+
+        if (
+            (self.config.kind == "discrete")
+            and (new_config.kind == "discrete")
+            and (self.config.max_t > new_config.max_t)
+        ):
+            logger.warning(
+                "Adapting from a larger discrete max_t to a smaller discrete max_t will probably crash the denoiser."
+            )
 
         adapted_steps = (
             self.steps.float() / float(self.config.max_t) * float(new_config.max_t)

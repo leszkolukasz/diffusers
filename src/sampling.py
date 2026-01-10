@@ -14,6 +14,11 @@ EPSILON = 1e-6
 
 
 class SamplingSchedule(ABC):
+    max_t: float
+
+    def __init__(self, *, max_t: float = 1.0):
+        self.max_t = max_t
+
     @abstractmethod
     def get_timesteps(self, n_steps: int) -> Timestep:
         pass
@@ -36,20 +41,25 @@ class AYSConfig:
 class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
     denoiser: Denoiser
     dataloader: DataLoader
-    timestep_config = TimestepConfig(kind="continuous", max_t=1.0)
+    timestep_config: TimestepConfig
 
     def __init__(
         self,
+        *,
+        max_t: float = 1.0,
         denoiser: Denoiser,
         dataloader: DataLoader,
         config: AYSConfig = AYSConfig(),
     ):
+        super().__init__(max_t=max_t)
         self.denoiser = denoiser
         self.dataloader = dataloader
         self.config = config
 
+        self.timestep_config = TimestepConfig(kind="continuous", max_t=max_t)
+
     def get_timesteps(self, n_steps: int = 10) -> Timestep:
-        t = torch.linspace(EPSILON, 1.0 - EPSILON, n_steps + 1)
+        t = torch.linspace(EPSILON, self.max_t - EPSILON, n_steps + 1)
 
         t = self._get_10_timesteps(t)
 

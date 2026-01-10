@@ -80,21 +80,44 @@ class PersistableModule(nn.Module):
 
 class NoisePredictor(PersistableModule, ABC):
     timestep_config: TimestepConfig
+    n_channels: int
+    img_width: int
+    img_height: int
 
     @abstractmethod
     def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
         pass
 
     def save(self, **extra_metadata):
-        super().save(max_t=self.timestep_config.max_t, **extra_metadata)
+        super().save(
+            max_t=self.timestep_config.max_t,
+            n_channels=self.n_channels,
+            img_width=self.img_width,
+            img_height=self.img_height,
+            **extra_metadata,
+        )
 
     def load(self):
         super().load()
         meta_max_t = self.metadata.get("max_t", None)
+        meta_n_channels = self.metadata.get("n_channels", None)
+        meta_img_width = self.metadata.get("img_width", None)
+        meta_img_height = self.metadata.get("img_height", None)
+
         if meta_max_t is not None and meta_max_t != self.timestep_config.max_t:
             logger.warning(
                 f"Loaded model max_t '{meta_max_t}' does not match current timestep_config.max_t '{self.timestep_config.max_t}'"
             )
+
+        for attr_name, meta_value, current_value in [
+            ("n_channels", meta_n_channels, self.n_channels),
+            ("img_width", meta_img_width, self.img_width),
+            ("img_height", meta_img_height, self.img_height),
+        ]:
+            if meta_value is not None and meta_value != current_value:
+                logger.warning(
+                    f"Loaded model {attr_name} '{meta_value}' does not match current value '{current_value}'"
+                )
 
     @classmethod
     def load_from_file(cls, file_path: str) -> "NoisePredictor":
@@ -108,18 +131,31 @@ class NoisePredictor(PersistableModule, ABC):
 
 # Model is conditioned on timestep from range [0, max_t] inclusive.
 class NoisePredictorUNet(NoisePredictor):
-    timestep_config: TimestepConfig
-
-    def __init__(self, *, max_t: int, suffix: str | None = None, **_kwargs):
+    def __init__(
+        self,
+        *,
+        n_channels: int,
+        img_width: int,
+        img_height: int,
+        max_t: int,
+        suffix: str | None = None,
+        **_kwargs,
+    ):
         super().__init__()
+        assert img_width == img_height, "Only square images are supported"
+
+        self.n_channels = n_channels
+        self.img_width = img_width
+        self.img_height = img_height
+
         self.timestep_config = TimestepConfig(kind="discrete", max_t=max_t)
         self.file_name = (
             f"noise_predictor_unet{suffix if suffix is not None else ''}.pth"
         )
         self.unet = UNet2DModel(
-            sample_size=28,
-            in_channels=1,
-            out_channels=1,
+            sample_size=img_width,
+            in_channels=n_channels,
+            out_channels=n_channels,
             layers_per_block=2,
             block_out_channels=(32, 64, 128),
             down_block_types=(

@@ -1,3 +1,4 @@
+import torch
 import os
 import sys
 
@@ -15,7 +16,7 @@ from src.denoiser import (
     HeunSDEDenoiser,
 )
 from src.generator import Generator
-from src.model import NoisePredictor, NoisePredictorUNet
+from src.model import NoisePredictorUNet
 from src.sampling import AYSConfig, AYSSamplingSchedule
 from src.schedule import (
     CosineAlphaSchedule,
@@ -28,8 +29,6 @@ from src.trainer import Trainer
 
 BATCH_SIZE = 512
 MAX_T = 1000
-NORM_MEAN = 0.5
-NORM_STD = 0.5
 
 DENOISER_CONFIGS = {
     "discrete": {
@@ -58,6 +57,32 @@ SCHEDULE_CONFIGS = {
         "sigma_schedule": CosineSigmaSchedule,
     },
 }
+DATASET_CONFIGS = {
+    "mnist": {
+        "class": datasets.MNIST,
+        "mean": (0.1307,),
+        "std": (0.3081,),
+        "channels": 1,
+        "img_width": 28,
+        "img_height": 28,
+    },
+    "fashion": {
+        "class": datasets.FashionMNIST,
+        "mean": (0.5,),
+        "std": (0.5,),
+        "channels": 1,
+        "img_width": 28,
+        "img_height": 28,
+    },
+    "cifar10": {
+        "class": datasets.CIFAR10,
+        "mean": (0.4914, 0.4822, 0.4465),
+        "std": (0.2023, 0.1994, 0.2010),
+        "channels": 3,
+        "img_width": 32,
+        "img_height": 32,
+    },
+}
 
 DENOISER_CONFIG_NAME = "euler"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
@@ -65,21 +90,34 @@ denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 SCHEDULE_CONFIG_NAME = "cosine"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
-unnormalize = transforms.Normalize((-NORM_MEAN / NORM_STD,), (1.0 / NORM_STD,))
+DATASET_CONFIG_NAME = "cifar10"
+dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 
-def get_dataloader(batch_size=BATCH_SIZE, shuffle=True, num_workers=2):
+def unnormalize(img: torch.Tensor) -> torch.Tensor:
+    config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
+    transform = transforms.Normalize(
+        (-torch.tensor(config["mean"]) / torch.tensor(config["std"])),
+        (1.0 / torch.tensor(config["std"])),
+    )
+    return transform(img)
+
+
+def get_dataloader(batch_size=BATCH_SIZE, train=True, shuffle=True, num_workers=2):
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize((NORM_MEAN,), (NORM_STD,))]
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(dataset_config["mean"], dataset_config["std"]),
+        ]
     )
 
-    data = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+    dataset = dataset_config["class"](root="./data", download=True, transform=transform)  # ty: ignore
     loader = DataLoader(
-        data,
+        dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=torch.cuda.is_available(),
     )
 
     return loader
@@ -95,7 +133,13 @@ def train():
     )
 
     logger.info(f"Using MAX_T: {MAX_T}")
-    model = NoisePredictorUNet(max_t=MAX_T, suffix="test").cuda()
+    model = NoisePredictorUNet(
+        max_t=MAX_T,
+        suffix=f"_{DATASET_CONFIG_NAME}",
+        n_channels=dataset_config["channels"],  # ty: ignore
+        img_width=dataset_config["img_width"],  # ty: ignore
+        img_height=dataset_config["img_height"],  # ty: ignore
+    ).cuda()
     model.try_load()
 
     trainer = Trainer(
@@ -110,15 +154,21 @@ def train():
     logger.success("Training complete")
 
 
-def test():
+def generate():
     if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    # model: PersistableModule = NoisePredictorUNet(max_steps=MAX_T).cuda()
-    # model.load()
-    model = NoisePredictor.load_from_file(
-        "./models/noise_predictor_unettest.pth"
+    model = NoisePredictorUNet(
+        max_t=MAX_T,
+        suffix=f"_{DATASET_CONFIG_NAME}",
+        n_channels=dataset_config["channels"],  # ty: ignore
+        img_width=dataset_config["img_width"],  # ty: ignore
+        img_height=dataset_config["img_height"],  # ty: ignore
     ).cuda()
+    model.load()
+    # model = NoisePredictor.load_from_file(
+    #     "./models/noise_predictor_unettest.pth"
+    # ).cuda()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
@@ -135,9 +185,9 @@ def test():
 
     generator = Generator(
         denoiser=denoiser,
-        n_channels=1,
-        img_width=28,
-        img_height=28,
+        n_channels=dataset_config["channels"],  # ty: ignore
+        img_width=dataset_config["img_width"],  # ty: ignore
+        img_height=dataset_config["img_height"],  # ty: ignore
     )
 
     n_samples = 16
@@ -151,7 +201,13 @@ def test():
 
 
 def ays():
-    model = NoisePredictorUNet(max_t=MAX_T).cuda()
+    model = NoisePredictorUNet(
+        max_t=MAX_T,
+        suffix=f"_{DATASET_CONFIG_NAME}",
+        n_channels=dataset_config["channels"],  # ty: ignore
+        img_width=dataset_config["img_width"],  # ty: ignore
+        img_height=dataset_config["img_height"],  # ty: ignore
+    ).cuda()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
@@ -187,8 +243,8 @@ if __name__ == "__main__":
     match mode:
         case "train":
             train()
-        case "test":
-            test()
+        case "generate":
+            generate()
         case "ays":
             ays()
         case _:
