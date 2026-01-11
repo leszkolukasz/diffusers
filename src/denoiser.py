@@ -53,9 +53,9 @@ class Denoiser(ABC):
 
 class DiscreteDenoiser(Denoiser):
     def _denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep):
-        max_t = int(self.model.timestep_config.max_t)
-        t = t.as_discrete(max_t)
-        t_prev = t_prev.as_discrete(max_t)
+        T = int(self.model.timestep_config.T)
+        t = t.as_discrete(T)
+        t_prev = t_prev.as_discrete(T)
 
         alpha_t = self.schedules.alpha(t).view(-1, 1, 1, 1)
         sigma_t = self.schedules.sigma(t).view(-1, 1, 1, 1)

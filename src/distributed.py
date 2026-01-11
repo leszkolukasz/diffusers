@@ -1,7 +1,7 @@
 import os
+
 import torch
 import torch.distributed as dist
-
 from loguru import logger
 
 RANK = 0

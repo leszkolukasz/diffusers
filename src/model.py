@@ -92,7 +92,7 @@ class NoisePredictor(PersistableModule, ABC):
 
     def save(self, **extra_metadata):
         super().save(
-            max_t=self.timestep_config.max_t,
+            T=self.timestep_config.T,
             n_channels=self.n_channels,
             img_width=self.img_width,
             img_height=self.img_height,
@@ -101,14 +101,14 @@ class NoisePredictor(PersistableModule, ABC):
 
     def load(self):
         super().load()
-        meta_max_t = self.metadata.get("max_t", None)
+        meta_T = self.metadata.get("T", None)
         meta_n_channels = self.metadata.get("n_channels", None)
         meta_img_width = self.metadata.get("img_width", None)
         meta_img_height = self.metadata.get("img_height", None)
 
-        if meta_max_t is not None and meta_max_t != self.timestep_config.max_t:
+        if meta_T is not None and meta_T != self.timestep_config.T:
             logger.warning(
-                f"Loaded model max_t '{meta_max_t}' does not match current timestep_config.max_t '{self.timestep_config.max_t}'"
+                f"Loaded model T '{meta_T}' does not match current timestep_config.T '{self.timestep_config.T}'"
             )
 
         for attr_name, meta_value, current_value in [
@@ -131,7 +131,7 @@ class NoisePredictor(PersistableModule, ABC):
         return instance
 
 
-# Model is conditioned on timestep from range [0, max_t] inclusive.
+# Model is conditioned on timestep from range [0, T] inclusive.
 class NoisePredictorUNet(NoisePredictor):
     def __init__(
         self,
@@ -139,7 +139,7 @@ class NoisePredictorUNet(NoisePredictor):
         n_channels: int,
         img_width: int,
         img_height: int,
-        max_t: int,
+        T: int,
         suffix: str | None = None,
         **_kwargs,
     ):
@@ -150,7 +150,7 @@ class NoisePredictorUNet(NoisePredictor):
         self.img_width = img_width
         self.img_height = img_height
 
-        self.timestep_config = TimestepConfig(kind="continuous", max_t=max_t)
+        self.timestep_config = TimestepConfig(kind="continuous", T=T)
         self.file_name = (
             f"noise_predictor_unet{suffix if suffix is not None else ''}.pth"
         )
@@ -195,7 +195,7 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
         img_height = img_width
 
         scheduler_config = cast(dict, scheduler_class.load_config(model_id))  # ty: ignore
-        max_t = assert_type(scheduler_config.get("num_train_timesteps"), int)
+        T = assert_type(scheduler_config.get("num_train_timesteps"), int)
         prediction_type = assert_type(scheduler_config.get("prediction_type"), str)
 
         assert prediction_type == "epsilon", (
@@ -207,7 +207,7 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
             n_channels=n_channels,
             img_width=img_width,
             img_height=img_height,
-            max_t=max_t,
+            T=T,
             suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
         )
         self.unet = UNet2DModel.from_pretrained(model_id)

@@ -2,12 +2,13 @@ import os
 import sys
 
 import torch
+import torch.distributed as dist
 import torchvision
 from loguru import logger
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets, transforms
-import torch.distributed as dist
 
+from src import distributed
 from src.denoiser import (
     Denoiser,
     DiscreteDenoiser,
@@ -16,8 +17,13 @@ from src.denoiser import (
     HeunODEDenoiser,
     HeunSDEDenoiser,
 )
+from src.distributed import RANK, WORLD_SIZE
 from src.generator import Generator
-from src.model import NoisePredictor, NoisePredictorUNet, NoisePredictorHuggingface  # noqa
+from src.model import (  # noqa
+    NoisePredictor,
+    NoisePredictorHuggingface,
+    NoisePredictorUNet,
+)
 from src.schedule import (
     CosineAlphaSchedule,
     CosineSigmaSchedule,
@@ -27,13 +33,11 @@ from src.schedule import (
     LinearSigmaSchedule,
     ScheduleGroup,
 )
-from src.schedule.sampling import AYSSamplingSchedule, AYSConfig, LinearSamplingSchedule
+from src.schedule.sampling import AYSConfig, AYSSamplingSchedule, LinearSamplingSchedule
 from src.trainer import Trainer
-from src import distributed
-from src.distributed import WORLD_SIZE, RANK
 
 BATCH_SIZE = 512
-MAX_T = 1000
+T = 1000
 
 DENOISER_CONFIGS = {
     "discrete": {
@@ -93,7 +97,7 @@ DATASET_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "discrete"
+DENOISER_CONFIG_NAME = "euler_maruyama"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
 SCHEDULE_CONFIG_NAME = "cosine"
@@ -149,9 +153,9 @@ def train():
         sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
     )
 
-    logger.info(f"Using MAX_T: {MAX_T}")
+    logger.info(f"Using T: {T}")
     model = NoisePredictorUNet(
-        max_t=MAX_T,
+        T=T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
         img_width=dataset_config["img_width"],  # ty: ignore
@@ -220,11 +224,11 @@ def generate():
     # )
     # timesteps.steps = timesteps.steps.cuda()
 
-    timesteps = LinearSamplingSchedule().get_timesteps(n_steps=10)
+    timesteps = LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=10)
     timesteps.steps = timesteps.steps.cuda()
 
     n_samples = 16
-    generated = generator.generate(n_samples=n_samples, n_steps=10, max_t=995)
+    generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
 
     for i in range(n_samples):
         img = generated[i]
@@ -235,7 +239,7 @@ def generate():
 
 def ays():
     model = NoisePredictorUNet(
-        max_t=MAX_T,
+        T=T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
         img_width=dataset_config["img_width"],  # ty: ignore

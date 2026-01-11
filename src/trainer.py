@@ -1,4 +1,3 @@
-from src.distributed import is_distributed, RANK
 import os
 from dataclasses import dataclass
 from typing import Iterable, Protocol
@@ -6,14 +5,15 @@ from typing import Iterable, Protocol
 import torch
 from loguru import logger
 from torch import nn, optim
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.diffusion import DiffusionMixin
+from src.distributed import RANK, is_distributed
 from src.model import ModuleMetadata, NoisePredictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 class DatasetProtocol(Protocol):
@@ -93,7 +93,7 @@ class Trainer(DiffusionMixin):
 
     def train(self, dataloader: DataLoader):
         device = next(self.model.parameters()).device
-        max_t = self.raw_model.timestep_config.max_t
+        max_t = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(

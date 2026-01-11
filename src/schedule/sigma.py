@@ -7,7 +7,7 @@ from src.timestep import Timestep, TimestepConfig
 
 
 class SigmaSchedule(ABC):
-    timestep_config: TimestepConfig = TimestepConfig(kind="continuous", max_t=1.0)
+    timestep_config: TimestepConfig = TimestepConfig(kind="continuous", T=1.0)
 
     @abstractmethod
     def __call__(self, t: Timestep) -> torch.Tensor:

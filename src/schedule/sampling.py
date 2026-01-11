@@ -30,7 +30,7 @@ class SamplingSchedule(ABC):
 class LinearSamplingSchedule(SamplingSchedule):
     def get_timesteps(self, n_steps: int) -> Timestep:
         steps = torch.linspace(self.max_t, 0.0, n_steps + 1)
-        return Timestep(TimestepConfig(kind="continuous", max_t=1.0), steps)
+        return Timestep(TimestepConfig(kind="continuous", T=1.0), steps)
 
 
 @dataclass
@@ -59,7 +59,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
         self.dataloader = dataloader
         self.config = config
 
-        self.timestep_config = TimestepConfig(kind="continuous", max_t=1.0)
+        self.timestep_config = TimestepConfig(kind="continuous", T=1.0)
 
     def get_timesteps(self, n_steps: int = 10) -> Timestep:
         t = torch.linspace(0.0, self.max_t, n_steps + 1)
