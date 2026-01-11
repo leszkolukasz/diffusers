@@ -26,10 +26,10 @@ class Generator:
         timesteps: Timestep | None = None,
     ) -> torch.Tensor:
         if n_steps is None and timesteps is None:
-            logger.info(
-                "Neither n_steps nor timesteps were provided. Using model's max_t"
-            )
             n_steps = int(self.denoiser.model.timestep_config.max_t)
+            logger.info(
+                f"Neither n_steps nor timesteps were provided. Using model's max_t: {n_steps}"
+            )
 
         device = next(self.denoiser.model.parameters()).device
         x_t = torch.randn(
@@ -40,7 +40,7 @@ class Generator:
             assert n_steps is not None
 
         if timesteps is None:
-            # Skip last step as it causes issues
+            # Skip last step as it causes issues (TODO: check this)
             timesteps_tensor = torch.arange(
                 n_steps - 1, 0, -1, device=x_t.device, dtype=torch.long
             )

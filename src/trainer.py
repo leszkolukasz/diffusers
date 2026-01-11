@@ -8,7 +8,7 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.common import DiffusionMixin
+from src.diffusion import DiffusionMixin
 from src.model import ModuleMetadata, NoisePredictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep

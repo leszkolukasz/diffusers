@@ -1,13 +1,15 @@
 import os
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Self
+from typing import Self, Type, cast
 
 import torch
+from diffusers import DDPMScheduler, SchedulerMixin
 from diffusers.models import UNet2DModel
 from loguru import logger
 from torch import nn
 
+from src.common import assert_type
 from src.timestep import Timestep, TimestepConfig
 
 
@@ -174,3 +176,32 @@ class NoisePredictorUNet(NoisePredictor):
     def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
         timestep = timestep.adapt(self.timestep_config)
         return self.unet(x, timestep=timestep.steps).sample
+
+
+class NoisePredictorHuggingface(NoisePredictorUNet):
+    def __init__(
+        self,
+        *,
+        model_id: str,
+        scheduler_class: Type[SchedulerMixin] = DDPMScheduler,  # type: ignore
+        suffix: str | None = None,
+        **_kwargs,
+    ):
+        suffix_str = "" if suffix is None else suffix
+
+        model_config = cast(dict, UNet2DModel.load_config(model_id))
+        n_channels = assert_type(model_config.get("in_channels"), int)
+        img_width = assert_type(model_config.get("sample_size"), int)
+        img_height = img_width
+
+        scheduler_config = cast(dict, scheduler_class.load_config(model_id))  # ty: ignore
+        max_t = assert_type(scheduler_config.get("num_train_timesteps"), int)
+
+        super().__init__(
+            n_channels=n_channels,
+            img_width=img_width,
+            img_height=img_height,
+            max_t=max_t,
+            suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
+        )
+        self.unet = UNet2DModel.from_pretrained(model_id)

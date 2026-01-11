@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from loguru import logger
-
 import torch
+from loguru import logger
 
 
 @dataclass

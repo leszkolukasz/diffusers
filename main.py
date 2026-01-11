@@ -1,7 +1,8 @@
-import torch
+# from src.timestep import TimestepConfig, Timestep
 import os
 import sys
 
+import torch
 import torchvision
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -16,11 +17,13 @@ from src.denoiser import (
     HeunSDEDenoiser,
 )
 from src.generator import Generator
-from src.model import NoisePredictorUNet
+from src.model import NoisePredictorHuggingface, NoisePredictorUNet
 from src.sampling import AYSConfig, AYSSamplingSchedule
 from src.schedule import (
     CosineAlphaSchedule,
     CosineSigmaSchedule,
+    HuggingFaceDDPMAlphaSchedule,
+    HuggingFaceDDPMSigmaSchedule,
     LinearAlphaSchedule,
     LinearSigmaSchedule,
     ScheduleGroup,
@@ -56,6 +59,10 @@ SCHEDULE_CONFIGS = {
         "alpha_schedule": CosineAlphaSchedule,
         "sigma_schedule": CosineSigmaSchedule,
     },
+    "hf_ddpm": {
+        "alpha_schedule": HuggingFaceDDPMAlphaSchedule,
+        "sigma_schedule": HuggingFaceDDPMSigmaSchedule,
+    },
 }
 DATASET_CONFIGS = {
     "mnist": {
@@ -84,13 +91,13 @@ DATASET_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "euler"
+DENOISER_CONFIG_NAME = "discrete"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
-SCHEDULE_CONFIG_NAME = "cosine"
+SCHEDULE_CONFIG_NAME = "hf_ddpm"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
-DATASET_CONFIG_NAME = "cifar10"
+DATASET_CONFIG_NAME = "mnist"
 dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 
@@ -158,14 +165,9 @@ def generate():
     if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    model = NoisePredictorUNet(
-        max_t=MAX_T,
-        suffix=f"_{DATASET_CONFIG_NAME}",
-        n_channels=dataset_config["channels"],  # ty: ignore
-        img_width=dataset_config["img_width"],  # ty: ignore
-        img_height=dataset_config["img_height"],  # ty: ignore
-    ).cuda()
-    model.load()
+    model_id = "1aurent/ddpm-mnist"
+    model = NoisePredictorHuggingface(model_id=model_id).cuda()
+    # model.load()
     # model = NoisePredictor.load_from_file(
     #     "./models/noise_predictor_unettest.pth"
     # ).cuda()
@@ -173,9 +175,18 @@ def generate():
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
     schedules = ScheduleGroup(
-        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
-        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
+        alpha_schedule=schedule_config["alpha_schedule"](model_id=model_id),  # ty: ignore
+        sigma_schedule=schedule_config["sigma_schedule"](model_id=model_id),  # ty: ignore
     )
+
+    # print(
+    #     schedules.alpha(
+    #         Timestep(
+    #             TimestepConfig(kind="continuous", max_t=1.0),
+    #             torch.tensor([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+    #         )
+    #     )
+    # )
 
     logger.info(f"Using denoiser config: {DENOISER_CONFIG_NAME}")
     denoiser: Denoiser = denoiser_config["denoiser"](

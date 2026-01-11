@@ -2,12 +2,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generator
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.common import DiffusionMixin, get_device
+from src.common import get_device
 from src.denoiser import Denoiser
+from src.diffusion import DiffusionMixin
 from src.timestep import Timestep, TimestepConfig
 
 EPSILON = 1e-6
@@ -128,9 +130,18 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
     def _get_40_timesteps(self, steps_20: torch.Tensor) -> torch.Tensor:  # ty: ignore
         pass
 
-    # how many steps to start from ?
     def _interpolate_timesteps(self, steps: torch.Tensor, n_steps: int) -> Timestep:
-        return Timestep(self.timestep_config, steps)
+        if len(steps) == n_steps + 1:
+            return Timestep(self.timestep_config, steps)
+
+        xs = torch.linspace(0, 1, len(steps)).cpu().detach().numpy()
+        ys = torch.log(steps).cpu().detach().numpy()
+
+        new_xs = torch.linspace(0, 1, n_steps + 1).cpu().detach().numpy()
+        new_ys = np.interp(new_xs, xs, ys)
+        new_steps = torch.exp(torch.tensor(new_ys, device=steps.device))
+
+        return Timestep(self.timestep_config, new_steps)
 
     def _get_candidates(self, t_prev: float, t: float, t_next: float) -> torch.Tensor:
         candidates = torch.linspace(
