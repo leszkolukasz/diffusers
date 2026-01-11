@@ -77,7 +77,7 @@ class DiscreteDenoiser(Denoiser):
 class ContinuousDenoiser(Denoiser):
     @torch.no_grad()
     def denoise(self, x_t: torch.Tensor, t: Timestep, t_prev: Timestep) -> torch.Tensor:
-        return self._denoise(x_t, t.as_continuous(), t_prev.as_continuous())
+        return self._denoise(x_t, t.as_continuous(1.0), t_prev.as_continuous(1.0))
 
 
 class EulerODEDenoiser(ContinuousDenoiser):

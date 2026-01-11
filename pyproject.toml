@@ -20,3 +20,6 @@ dev = [
     "ruff>=0.14.10",
     "ty>=0.0.10",
 ]
+
+[tool.ty.rules]
+possibly-missing-attribute = "ignore"

@@ -1,12 +1,12 @@
-# from src.timestep import TimestepConfig, Timestep
 import os
 import sys
 
 import torch
 import torchvision
 from loguru import logger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets, transforms
+import torch.distributed as dist
 
 from src.denoiser import (
     Denoiser,
@@ -17,7 +17,7 @@ from src.denoiser import (
     HeunSDEDenoiser,
 )
 from src.generator import Generator
-from src.model import NoisePredictorHuggingface, NoisePredictorUNet
+from src.model import NoisePredictor, NoisePredictorUNet, NoisePredictorHuggingface  # noqa
 from src.schedule import (
     CosineAlphaSchedule,
     CosineSigmaSchedule,
@@ -29,6 +29,8 @@ from src.schedule import (
 )
 from src.schedule.sampling import AYSSamplingSchedule, AYSConfig
 from src.trainer import Trainer
+from src import distributed
+from src.distributed import WORLD_SIZE, RANK
 
 BATCH_SIZE = 512
 MAX_T = 1000
@@ -94,7 +96,7 @@ DATASET_CONFIGS = {
 DENOISER_CONFIG_NAME = "discrete"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
-SCHEDULE_CONFIG_NAME = "hf_ddpm"
+SCHEDULE_CONFIG_NAME = "cosine"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
 DATASET_CONFIG_NAME = "mnist"
@@ -119,12 +121,20 @@ def get_dataloader(batch_size=BATCH_SIZE, train=True, shuffle=True, num_workers=
     )
 
     dataset = dataset_config["class"](root="./data", download=True, transform=transform)  # ty: ignore
+
+    sampler = None
+    if distributed.is_distributed():
+        sampler = DistributedSampler(
+            dataset, num_replicas=WORLD_SIZE, rank=RANK, shuffle=shuffle
+        )
+
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=shuffle if sampler is None else False,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
+        sampler=sampler,
     )
 
     return loader
@@ -165,18 +175,18 @@ def generate():
     if not os.path.exists(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    model_id = "1aurent/ddpm-mnist"
-    model = NoisePredictorHuggingface(model_id=model_id).cuda()
+    # model_id = "1aurent/ddpm-mnist"
+    # model = NoisePredictorHuggingface(model_id=model_id).cuda()
+    model = NoisePredictor.load_from_file(
+        "./models/noise_predictor_unet_mnist.pth"
+    ).cuda()
     # model.load()
-    # model = NoisePredictor.load_from_file(
-    #     "./models/noise_predictor_unettest.pth"
-    # ).cuda()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
     schedules = ScheduleGroup(
-        alpha_schedule=schedule_config["alpha_schedule"](model_id=model_id),  # ty: ignore
-        sigma_schedule=schedule_config["sigma_schedule"](model_id=model_id),  # ty: ignore
+        alpha_schedule=schedule_config["alpha_schedule"](),  # ty: ignore
+        sigma_schedule=schedule_config["sigma_schedule"](),  # ty: ignore
     )
 
     # print(
@@ -251,6 +261,9 @@ if __name__ == "__main__":
 
     mode = sys.argv[1]
 
+    if distributed.is_distributed():
+        distributed.setup()
+
     match mode:
         case "train":
             train()
@@ -260,3 +273,7 @@ if __name__ == "__main__":
             ays()
         case _:
             logger.error(f"Unknown mode: {mode}")
+
+    if distributed.is_distributed():
+        dist.barrier()
+        distributed.cleanup()

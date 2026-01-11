@@ -41,11 +41,11 @@ class Timestep:
 
         return Timestep(config=new_config, steps=adapted_steps)
 
-    def as_discrete(self, max_t) -> "Timestep":
+    def as_discrete(self, max_t: int) -> "Timestep":
         return self.adapt(TimestepConfig(kind="discrete", max_t=max_t))
 
-    def as_continuous(self) -> "Timestep":
-        return self.adapt(TimestepConfig(kind="continuous", max_t=1.0))
+    def as_continuous(self, max_t: float) -> "Timestep":
+        return self.adapt(TimestepConfig(kind="continuous", max_t=max_t))
 
     def __len__(self):
         return self.steps.size(0)

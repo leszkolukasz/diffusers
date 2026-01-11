@@ -150,7 +150,7 @@ class NoisePredictorUNet(NoisePredictor):
         self.img_width = img_width
         self.img_height = img_height
 
-        self.timestep_config = TimestepConfig(kind="discrete", max_t=max_t)
+        self.timestep_config = TimestepConfig(kind="continuous", max_t=max_t)
         self.file_name = (
             f"noise_predictor_unet{suffix if suffix is not None else ''}.pth"
         )
@@ -196,6 +196,12 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
 
         scheduler_config = cast(dict, scheduler_class.load_config(model_id))  # ty: ignore
         max_t = assert_type(scheduler_config.get("num_train_timesteps"), int)
+        prediction_type = assert_type(scheduler_config.get("prediction_type"), str)
+
+        assert prediction_type == "epsilon", (
+            f"Unsupported prediction_type '{prediction_type}' in scheduler for model '{model_id}'. "
+            "Only 'epsilon' is supported."
+        )
 
         super().__init__(
             n_channels=n_channels,
