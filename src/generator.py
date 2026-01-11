@@ -47,7 +47,7 @@ class Generator:
             timesteps_tensor = torch.linspace(
                 max_t,
                 0.0,
-                n_steps + 1,
+                n_steps + 1 + (1 if skip_last_step else 0),
                 device=device,
             )
 

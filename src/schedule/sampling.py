@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Generator
@@ -23,12 +24,12 @@ class SamplingSchedule(ABC):
         self.max_t = max_t
 
     @abstractmethod
-    def get_timesteps(self, n_steps: int) -> Timestep:
+    def get_timesteps(self, n_steps: int, **kwargs) -> Timestep:
         pass
 
 
 class LinearSamplingSchedule(SamplingSchedule):
-    def get_timesteps(self, n_steps: int) -> Timestep:
+    def get_timesteps(self, n_steps: int, **kwargs) -> Timestep:
         steps = torch.linspace(self.max_t, 0.0, n_steps + 1)
         return Timestep(TimestepConfig(kind="continuous", T=1.0), steps)
 
@@ -36,9 +37,12 @@ class LinearSamplingSchedule(SamplingSchedule):
 @dataclass
 class AYSConfig:
     max_iter: int = 300
+    max_finetune_iter: int = 10
     device: torch.device = get_device()
     n_candidates: int = 11
     n_monte_carlo_iter: int = 1000
+    save_interval_iter: int = 1
+    save_file: str = "generated/ays_timesteps.pt"
 
 
 class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
@@ -49,7 +53,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
     def __init__(
         self,
         *,
-        max_t: float = 0.5,
+        max_t: float = 0.95,
         denoiser: Denoiser,
         dataloader: DataLoader,
         config: AYSConfig = AYSConfig(),
@@ -61,42 +65,87 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
 
         self.timestep_config = TimestepConfig(kind="continuous", T=1.0)
 
-    def get_timesteps(self, n_steps: int = 10) -> Timestep:
-        t = torch.linspace(0.0, self.max_t, n_steps + 1)
+    def get_timesteps(
+        self, n_steps: int = 10, *, initial_t: Timestep | None = None, **kwargs
+    ) -> Timestep:
+        if initial_t is not None:
+            t = initial_t.as_continuous(1.0).steps
+        else:
+            t = torch.linspace(0.0, self.max_t, n_steps + 1)
 
         t = self._get_10_timesteps(t)
 
         if n_steps <= 10:
-            return self._interpolate_timesteps(t, n_steps)
+            return self.interpolate_timesteps(t, n_steps)
 
-        t = self._get_20_timesteps(t)
+        t = self.get_20_timesteps(t)
 
         if n_steps <= 20:
-            return self._interpolate_timesteps(t, n_steps)
+            return self.interpolate_timesteps(t, n_steps)
 
-        t = self._get_40_timesteps(t)
+        t = self.get_40_timesteps(t)
 
-        return self._interpolate_timesteps(t, n_steps)
+        return self.interpolate_timesteps(t, n_steps)
 
-    def _get_10_timesteps(self, initial_steps: torch.Tensor) -> torch.Tensor:
-        pbar_outer = tqdm(range(self.config.max_iter), desc="AYS 10-step")
+    def _get_10_timesteps(self, initial_steps: torch.Tensor) -> Timestep:
+        steps = self._optimize(
+            initial_steps, max_iter=self.config.max_iter, desc="AYS 10-step"
+        )
+
+        return Timestep(self.timestep_config, steps)
+
+    def get_20_timesteps(self, steps_10: Timestep) -> Timestep:  # ty: ignore
+        assert len(steps_10) == 11
+        steps = steps_10.as_continuous(1.0).steps
+        steps = self._subdivide(steps)
+
+        steps = self._optimize(
+            steps,
+            max_iter=self.config.max_finetune_iter,
+            desc="AYS 20-step",
+            skip_even=True,
+        )
+
+        return Timestep(self.timestep_config, steps)
+
+    def get_40_timesteps(self, steps_20: Timestep) -> Timestep:  # ty: ignore
+        assert len(steps_20) == 21
+        steps = steps_20.as_continuous(1.0).steps
+        steps = self._subdivide(steps)
+
+        steps = self._optimize(
+            steps,
+            max_iter=self.config.max_finetune_iter,
+            desc="AYS 40-step",
+            skip_even=True,
+        )
+
+        return Timestep(self.timestep_config, steps)
+
+    def _optimize(
+        self, steps: torch.Tensor, max_iter: int, desc: str, *, skip_even: bool = False
+    ) -> torch.Tensor:
+        pbar_outer = tqdm(range(max_iter), desc=desc)
 
         no_change = False
         current_iter = 0
 
-        while not no_change and current_iter < self.config.max_iter:
+        while not no_change and current_iter < max_iter:
             no_change = True
             current_iter += 1
 
-            t_indices = range(1, len(initial_steps) - 1)
+            t_indices = range(1, len(steps) - 1)
             pbar_steps = tqdm(
                 t_indices, desc=f"Iter {current_iter}: Steps", leave=False
             )
 
             for i in pbar_steps:
-                t_prev = initial_steps[i - 1].item()
-                t = initial_steps[i].item()
-                t_next = initial_steps[i + 1].item()
+                if skip_even and i % 2 == 0:
+                    continue
+
+                t_prev = steps[i - 1].item()
+                t = steps[i].item()
+                t_next = steps[i + 1].item()
 
                 candidates = self._get_candidates(t_prev, t, t_next)
                 klub_per_candidate = []
@@ -116,22 +165,24 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
                 argmin = int(torch.argmin(torch.tensor(klub_per_candidate)).item())
 
                 if candidates[argmin].item() != t:
-                    initial_steps[i] = candidates[argmin]
+                    steps[i] = candidates[argmin]
                     no_change = False
 
             pbar_outer.update(1)
 
+            if current_iter % self.config.save_interval_iter == 0:
+                torch.save(
+                    Timestep(self.timestep_config, steps),
+                    self.config.save_file,
+                )
+
         pbar_outer.close()
 
-        return initial_steps
+        return steps
 
-    def _get_20_timesteps(self, steps_10: torch.Tensor) -> torch.Tensor:  # ty: ignore
-        pass
+    def interpolate_timesteps(self, timesteps: Timestep, n_steps: int) -> Timestep:
+        steps = timesteps.as_continuous(1.0).steps
 
-    def _get_40_timesteps(self, steps_20: torch.Tensor) -> torch.Tensor:  # ty: ignore
-        pass
-
-    def _interpolate_timesteps(self, steps: torch.Tensor, n_steps: int) -> Timestep:
         if len(steps) == n_steps + 1:
             return Timestep(self.timestep_config, steps)
 
@@ -143,6 +194,24 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
         new_steps = torch.exp(torch.tensor(new_ys, device=steps.device))
 
         return Timestep(self.timestep_config, new_steps)
+
+    def _subdivide(self, steps: torch.Tensor) -> torch.Tensor:
+        new_steps = []
+
+        # log t_{2n+1} = 0.5 * (log t_{n} + log t_{n+1})
+
+        for i in range(len(steps) - 1):
+            t_start = steps[i].item()
+            t_end = steps[i + 1].item()
+
+            new_steps.append(t_start)
+
+            t_mid = math.exp(0.5 * (math.log(t_start) + math.log(t_end)))
+            new_steps.append(t_mid)
+
+        new_steps.append(steps[-1].item())
+
+        return torch.tensor(new_steps, device=steps.device)
 
     def _get_candidates(self, t_prev: float, t: float, t_next: float) -> torch.Tensor:
         candidates = torch.linspace(

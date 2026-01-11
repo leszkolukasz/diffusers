@@ -1,8 +1,7 @@
+from src.common import load_scheduler_config
 from abc import ABC
-from typing import cast
 
 import torch
-from diffusers import DDPMScheduler
 
 from src.common import assert_type
 from src.timestep import Timestep, TimestepConfig
@@ -10,7 +9,7 @@ from src.timestep import Timestep, TimestepConfig
 
 class HuggingFaceDDPMBaseSchedule(ABC):
     def __init__(self, model_id: str):
-        config = cast(dict, DDPMScheduler.load_config(model_id))  # type: ignore[possibly-missing-attribute]
+        config = load_scheduler_config(model_id)
 
         self.T = assert_type(config.get("num_train_timesteps"), int)
         beta_start = assert_type(config.get("beta_start"), float)

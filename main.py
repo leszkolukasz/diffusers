@@ -1,3 +1,5 @@
+from typing import cast
+from src.timestep import Timestep
 import os
 import sys
 
@@ -97,13 +99,13 @@ DATASET_CONFIGS = {
     },
 }
 
-DENOISER_CONFIG_NAME = "euler_maruyama"
+DENOISER_CONFIG_NAME = "discrete"
 denoiser_config = DENOISER_CONFIGS[DENOISER_CONFIG_NAME]
 
 SCHEDULE_CONFIG_NAME = "cosine"
 schedule_config = SCHEDULE_CONFIGS[SCHEDULE_CONFIG_NAME]
 
-DATASET_CONFIG_NAME = "mnist"
+DATASET_CONFIG_NAME = "fashion"
 dataset_config = DATASET_CONFIGS[DATASET_CONFIG_NAME]
 
 
@@ -182,7 +184,7 @@ def generate():
     # model_id = "1aurent/ddpm-mnist"
     # model = NoisePredictorHuggingface(model_id=model_id).cuda()
     model = NoisePredictor.load_from_file(
-        "./models/noise_predictor_unet_mnist.pth"
+        "./models/noise_predictor_unet_fashion.pth"
     ).cuda()
     # model.load()
     model.eval()
@@ -223,12 +225,13 @@ def generate():
     #     ),
     # )
     # timesteps.steps = timesteps.steps.cuda()
+    # timesteps = timesteps.reverse()
 
     timesteps = LinearSamplingSchedule(max_t=0.95).get_timesteps(n_steps=10)
     timesteps.steps = timesteps.steps.cuda()
 
     n_samples = 16
-    generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
+    generated = generator.generate(n_samples=n_samples, max_t=990, n_steps=990)
 
     for i in range(n_samples):
         img = generated[i]
@@ -262,15 +265,23 @@ def ays():
     ays_schedule = AYSSamplingSchedule(
         denoiser=denoiser,
         dataloader=get_dataloader(batch_size=128),
-        config=AYSConfig(max_iter=1),
+        config=AYSConfig(
+            max_iter=100,
+            save_file=f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
+        ),
     )
 
-    timesteps = ays_schedule.get_timesteps()
+    try:
+        initial_t = torch.load(
+            f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
+            weights_only=False,
+        )
+    except FileNotFoundError:
+        initial_t = None
 
-    torch.save(
-        timesteps,
-        f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
-    )
+    logger.info(f"Starting AYS tuning with initial_t: {initial_t}")
+    timesteps = ays_schedule.get_timesteps(initial_t=initial_t)
+    logger.info(f"Final timesteps: {timesteps.steps}")
 
 
 if __name__ == "__main__":

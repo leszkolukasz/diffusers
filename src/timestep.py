@@ -51,3 +51,7 @@ class Timestep:
     def __getitem__(self, idx) -> "Timestep":
         assert 0 <= idx < len(self), "Index out of range"
         return Timestep(config=self.config, steps=self.steps[idx : idx + 1])
+
+    def reverse(self) -> "Timestep":
+        reversed_steps = torch.flip(self.steps, dims=[0])
+        return Timestep(config=self.config, steps=reversed_steps)

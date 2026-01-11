@@ -1,10 +1,11 @@
+from src.common import load_unet_config, load_scheduler_config, load_unet_pretrained
 import os
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Self, Type, cast
+from typing import Self, Type
 
 import torch
-from diffusers import DDPMScheduler, SchedulerMixin
+from diffusers import DDPMScheduler, SchedulerMixin, ModelMixin
 from diffusers.models import UNet2DModel
 from loguru import logger
 from torch import nn
@@ -183,25 +184,27 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
         self,
         *,
         model_id: str,
-        scheduler_class: Type[SchedulerMixin] = DDPMScheduler,  # type: ignore
+        dtype: torch.dtype = torch.float32,
+        unet_class: Type = UNet2DModel,
+        scheduler_class: Type = DDPMScheduler,
         suffix: str | None = None,
         **_kwargs,
     ):
         suffix_str = "" if suffix is None else suffix
 
-        model_config = cast(dict, UNet2DModel.load_config(model_id))
+        model_config = load_unet_config(model_id, unet_class)
         n_channels = assert_type(model_config.get("in_channels"), int)
         img_width = assert_type(model_config.get("sample_size"), int)
         img_height = img_width
 
-        scheduler_config = cast(dict, scheduler_class.load_config(model_id))  # ty: ignore
+        scheduler_config = load_scheduler_config(model_id, scheduler_class)
         T = assert_type(scheduler_config.get("num_train_timesteps"), int)
-        prediction_type = assert_type(scheduler_config.get("prediction_type"), str)
+        prediction_type = scheduler_config.get("prediction_type")
 
-        assert prediction_type == "epsilon", (
-            f"Unsupported prediction_type '{prediction_type}' in scheduler for model '{model_id}'. "
-            "Only 'epsilon' is supported."
-        )
+        if prediction_type != "epsilon":
+            logger.warning(
+                f"Loaded scheduler prediction_type '{prediction_type}' is not 'epsilon'."
+            )
 
         super().__init__(
             n_channels=n_channels,
@@ -210,4 +213,6 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
             T=T,
             suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
         )
-        self.unet = UNet2DModel.from_pretrained(model_id)
+        self.unet = load_unet_pretrained(
+            model_id, unet_class=unet_class, torch_dtype=dtype
+        )
