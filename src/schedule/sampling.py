@@ -12,13 +12,14 @@ from src.denoiser import Denoiser
 from src.diffusion import DiffusionMixin
 from src.timestep import Timestep, TimestepConfig
 
-EPSILON = 1e-6
+EPSILON = 1e-5
 
 
 class SamplingSchedule(ABC):
     max_t: float
 
-    def __init__(self, *, max_t: float = 1.0):
+    # If values are close to 1.0 it generates noisy images.
+    def __init__(self, *, max_t: float = 0.95):
         self.max_t = max_t
 
     @abstractmethod
@@ -28,7 +29,7 @@ class SamplingSchedule(ABC):
 
 class LinearSamplingSchedule(SamplingSchedule):
     def get_timesteps(self, n_steps: int) -> Timestep:
-        steps = torch.linspace(1.0 - EPSILON, EPSILON, n_steps)
+        steps = torch.linspace(self.max_t, 0.0, n_steps + 1)
         return Timestep(TimestepConfig(kind="continuous", max_t=1.0), steps)
 
 
@@ -48,7 +49,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
     def __init__(
         self,
         *,
-        max_t: float = 1.0,
+        max_t: float = 0.5,
         denoiser: Denoiser,
         dataloader: DataLoader,
         config: AYSConfig = AYSConfig(),
@@ -58,10 +59,10 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
         self.dataloader = dataloader
         self.config = config
 
-        self.timestep_config = TimestepConfig(kind="continuous", max_t=max_t)
+        self.timestep_config = TimestepConfig(kind="continuous", max_t=1.0)
 
     def get_timesteps(self, n_steps: int = 10) -> Timestep:
-        t = torch.linspace(EPSILON, self.max_t - EPSILON, n_steps + 1)
+        t = torch.linspace(0.0, self.max_t, n_steps + 1)
 
         t = self._get_10_timesteps(t)
 

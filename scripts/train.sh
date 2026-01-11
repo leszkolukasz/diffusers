@@ -18,6 +18,6 @@ master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
 export MASTER_ADDR=$master_addr
 echo "MASTER_ADDR="$MASTER_ADDR
 
-source ~/venv/bin/activate
+source ~/.venv/bin/activate
 
 srun python3 main.py train

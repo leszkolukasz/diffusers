@@ -27,7 +27,7 @@ from src.schedule import (
     LinearSigmaSchedule,
     ScheduleGroup,
 )
-from src.schedule.sampling import AYSSamplingSchedule, AYSConfig
+from src.schedule.sampling import AYSSamplingSchedule, AYSConfig, LinearSamplingSchedule
 from src.trainer import Trainer
 from src import distributed
 from src.distributed import WORLD_SIZE, RANK
@@ -211,8 +211,20 @@ def generate():
         img_height=dataset_config["img_height"],  # ty: ignore
     )
 
+    # timesteps = cast(
+    #     Timestep,
+    #     torch.load(
+    #         f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
+    #         weights_only=False,
+    #     ),
+    # )
+    # timesteps.steps = timesteps.steps.cuda()
+
+    timesteps = LinearSamplingSchedule().get_timesteps(n_steps=10)
+    timesteps.steps = timesteps.steps.cuda()
+
     n_samples = 16
-    generated = generator.generate(n_samples=n_samples)
+    generated = generator.generate(n_samples=n_samples, n_steps=10, max_t=995)
 
     for i in range(n_samples):
         img = generated[i]
@@ -245,12 +257,16 @@ def ays():
 
     ays_schedule = AYSSamplingSchedule(
         denoiser=denoiser,
-        dataloader=get_dataloader(batch_size=64, shuffle=False),
+        dataloader=get_dataloader(batch_size=128),
         config=AYSConfig(max_iter=1),
     )
 
     timesteps = ays_schedule.get_timesteps()
-    print(timesteps)
+
+    torch.save(
+        timesteps,
+        f"generated/ays_timesteps_{DENOISER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}.pt",
+    )
 
 
 if __name__ == "__main__":

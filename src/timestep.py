@@ -8,6 +8,9 @@ from loguru import logger
 @dataclass
 class TimestepConfig:
     kind: Literal["discrete", "continuous"]
+    # Should describe range of timesteps (e.g., 1000 for discrete, 1.0 for continuous).
+    # Should not be set to smaller values like 0.95 to deal with generation problems
+    # as it will be scaled back to 1.0 by denoisers.
     max_t: int | float
 
 

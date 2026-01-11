@@ -16,19 +16,21 @@ class Generator:
     img_width: int
     img_height: int
 
-    # Assumes timesteps are provided in decreasing order. Should not contain 0 or max_t.
+    # Assumes timesteps are provided in decreasing order.
+    # Should not contain values close to max_t.
     @torch.no_grad()
     def generate(
         self,
         n_samples: int,
         *,
+        max_t: float | int | None = None,
         n_steps: int | None = None,
         timesteps: Timestep | None = None,
     ) -> torch.Tensor:
         if n_steps is None and timesteps is None:
-            n_steps = int(self.denoiser.model.timestep_config.max_t)
+            n_steps = int(self.denoiser.model.timestep_config.max_t) - 1
             logger.info(
-                f"Neither n_steps nor timesteps were provided. Using model's max_t: {n_steps}"
+                f"Neither n_steps nor timesteps were provided. Using max number of steps according to model config: {n_steps}."
             )
 
         device = next(self.denoiser.model.parameters()).device
@@ -39,13 +41,20 @@ class Generator:
         if TYPE_CHECKING:
             assert n_steps is not None
 
+        max_t = max_t or self.denoiser.model.timestep_config.max_t
+
         if timesteps is None:
-            # Skip last step as it causes issues (TODO: check this)
-            timesteps_tensor = torch.arange(
-                n_steps - 1, 0, -1, device=x_t.device, dtype=torch.long
+            timesteps_tensor = torch.linspace(
+                max_t,
+                0.0,
+                n_steps + 1,
+                device=device,
             )
             timesteps = Timestep(
-                TimestepConfig(kind="discrete", max_t=n_steps), timesteps_tensor
+                TimestepConfig(
+                    kind="continuous", max_t=self.denoiser.model.timestep_config.max_t
+                ),
+                timesteps_tensor,
             )
 
         for i in range(len(timesteps) - 1):
