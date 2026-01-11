@@ -18,7 +18,6 @@ from src.denoiser import (
 )
 from src.generator import Generator
 from src.model import NoisePredictorHuggingface, NoisePredictorUNet
-from src.sampling import AYSConfig, AYSSamplingSchedule
 from src.schedule import (
     CosineAlphaSchedule,
     CosineSigmaSchedule,
@@ -28,6 +27,7 @@ from src.schedule import (
     LinearSigmaSchedule,
     ScheduleGroup,
 )
+from src.schedule.sampling import AYSSamplingSchedule, AYSConfig
 from src.trainer import Trainer
 
 BATCH_SIZE = 512
