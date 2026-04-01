@@ -89,7 +89,10 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
 
     def _get_10_timesteps(self, initial_steps: torch.Tensor) -> Timestep:
         steps = self._optimize(
-            initial_steps, max_iter=self.config.max_iter, desc="AYS 10-step"
+            initial_steps,
+            max_iter=self.config.max_iter,
+            desc="AYS 10-step",
+            suffix="_10",
         )
 
         return Timestep(self.timestep_config, steps)
@@ -104,6 +107,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
             max_iter=self.config.max_finetune_iter,
             desc="AYS 20-step",
             skip_even=True,
+            suffix="_20",
         )
 
         return Timestep(self.timestep_config, steps)
@@ -118,12 +122,19 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
             max_iter=self.config.max_finetune_iter,
             desc="AYS 40-step",
             skip_even=True,
+            suffix="_40",
         )
 
         return Timestep(self.timestep_config, steps)
 
     def _optimize(
-        self, steps: torch.Tensor, max_iter: int, desc: str, *, skip_even: bool = False
+        self,
+        steps: torch.Tensor,
+        max_iter: int,
+        desc: str,
+        *,
+        skip_even: bool = False,
+        suffix: str = "",
     ) -> torch.Tensor:
         pbar_outer = tqdm(range(max_iter), desc=desc)
 
@@ -173,7 +184,7 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
             if current_iter % self.config.save_interval_iter == 0:
                 torch.save(
                     Timestep(self.timestep_config, steps),
-                    self.config.save_file,
+                    f"{self.config.save_file}{suffix}",
                 )
 
         pbar_outer.close()
@@ -206,7 +217,12 @@ class AYSSamplingSchedule(SamplingSchedule, DiffusionMixin):
 
             new_steps.append(t_start)
 
-            t_mid = math.exp(0.5 * (math.log(t_start) + math.log(t_end)))
+            if t_start < EPSILON:
+                t_mid = (t_start + t_end) / 2.0
+            else:
+                # t_mid = math.exp(0.5 * (math.log(t_start) + math.log(t_end)))
+                t_mid = math.sqrt(t_start * t_end)
+
             new_steps.append(t_mid)
 
         new_steps.append(steps[-1].item())

@@ -26,7 +26,7 @@ class LambdaSchedule:
         return 2 * (d_alpha / alpha - d_sigma / sigma)
 
 
-class AYSSigmaSchedule:
+class EDMSigmaSchedule:
     alpha: AlphaSchedule
     sigma: SigmaSchedule
 
@@ -51,10 +51,10 @@ class ScheduleGroup:
     alpha: AlphaSchedule
     sigma: SigmaSchedule
     lambda_: LambdaSchedule
-    ays_sigma: AYSSigmaSchedule
+    edm_sigma: EDMSigmaSchedule
 
     def __init__(self, alpha_schedule: AlphaSchedule, sigma_schedule: SigmaSchedule):
         self.alpha = alpha_schedule
         self.sigma = sigma_schedule
         self.lambda_ = LambdaSchedule(alpha_schedule, sigma_schedule)
-        self.ays_sigma = AYSSigmaSchedule(alpha_schedule, sigma_schedule)
+        self.edm_sigma = EDMSigmaSchedule(alpha_schedule, sigma_schedule)

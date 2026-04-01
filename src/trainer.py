@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from src.diffusion import DiffusionMixin
 from src.distributed import RANK, is_distributed
-from src.model import ModuleMetadata, NoisePredictor
+from src.model import ModuleMetadata, Predictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
@@ -30,12 +30,12 @@ class TrainingConfig:
 
 
 class Trainer(DiffusionMixin):
-    raw_model: NoisePredictor
+    raw_model: Predictor
     model: nn.Module
 
     def __init__(
         self,
-        model: NoisePredictor,
+        model: Predictor,
         schedules: ScheduleGroup,
         config: TrainingConfig = TrainingConfig(),
     ):
@@ -132,7 +132,9 @@ class Trainer(DiffusionMixin):
                 X_noisy, noise = self.diffuse(X, t, self.schedules)
                 noise_pred = self.model(X_noisy, timestep=t)
 
-                loss = self.criterion(noise_pred, noise)
+                loss = self.criterion(
+                    noise_pred, noise
+                )  # TODO: Add loss weighting (EDM)
                 loss.backward()
 
                 self.optimizer.step()

@@ -17,6 +17,8 @@ class Generator:
     img_height: int
 
     # Assumes timesteps are provided in decreasing order.
+    # In case of continuous timesteps, max_t should be set to values
+    # close to T e.g. 0.99 when T=1 to deal with exploding values.
     @torch.no_grad()
     def generate(
         self,

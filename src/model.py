@@ -1,16 +1,20 @@
-from src.common import load_unet_config, load_scheduler_config, load_unet_pretrained
 import os
 from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import Self, Type
 
 import torch
-from diffusers import DDPMScheduler, SchedulerMixin, ModelMixin
+from diffusers import DDPMScheduler
 from diffusers.models import UNet2DModel
 from loguru import logger
 from torch import nn
 
-from src.common import assert_type
+from src.common import (
+    assert_type,
+    load_scheduler_config,
+    load_unet_config,
+    load_unet_pretrained,
+)
 from src.timestep import Timestep, TimestepConfig
 
 
@@ -41,9 +45,11 @@ class PersistableModule(nn.Module):
                 f"Loaded model type '{type_name}' does not match current class '{self.__class__.__name__}'"
             )
 
-    def try_load(self):
+    def try_load(self) -> bool:
         if os.path.exists(f"models/{self.file_name}"):
             self.load()
+            return True
+        return False
 
     @classmethod
     def load_from_file(cls, file_path: str) -> Self:
@@ -81,11 +87,32 @@ class PersistableModule(nn.Module):
         )
 
 
-class NoisePredictor(PersistableModule, ABC):
+class PredictionTarget(StrEnum):
+    Noise = "noise"
+    x0 = "x0"
+    Score = "score"
+    Vecolcity = "velocity"
+
+    def to_hf(self) -> str:
+        match self:
+            case PredictionTarget.Noise:
+                return "epsilon"
+            case PredictionTarget.x0:
+                return "v_prediction"
+            case PredictionTarget.Vecolcity:
+                return "v_prediction"
+            case PredictionTarget.Score:
+                raise NotImplementedError("Not supported")
+            case _:
+                raise ValueError(f"Unsupported PredictionTarget: {self}")
+
+
+class Predictor(PersistableModule, ABC):
     timestep_config: TimestepConfig
     n_channels: int
     img_width: int
     img_height: int
+    target: PredictionTarget
 
     @abstractmethod
     def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
@@ -97,6 +124,7 @@ class NoisePredictor(PersistableModule, ABC):
             n_channels=self.n_channels,
             img_width=self.img_width,
             img_height=self.img_height,
+            target=self.target.value,
             **extra_metadata,
         )
 
@@ -106,6 +134,7 @@ class NoisePredictor(PersistableModule, ABC):
         meta_n_channels = self.metadata.get("n_channels", None)
         meta_img_width = self.metadata.get("img_width", None)
         meta_img_height = self.metadata.get("img_height", None)
+        meta_target = self.metadata.get("target", None)
 
         if meta_T is not None and meta_T != self.timestep_config.T:
             logger.warning(
@@ -116,6 +145,7 @@ class NoisePredictor(PersistableModule, ABC):
             ("n_channels", meta_n_channels, self.n_channels),
             ("img_width", meta_img_width, self.img_width),
             ("img_height", meta_img_height, self.img_height),
+            ("target", meta_target, self.target.value if self.target else None),
         ]:
             if meta_value is not None and meta_value != current_value:
                 logger.warning(
@@ -123,17 +153,17 @@ class NoisePredictor(PersistableModule, ABC):
                 )
 
     @classmethod
-    def load_from_file(cls, file_path: str) -> "NoisePredictor":
+    def load_from_file(cls, file_path: str) -> "Predictor":
         instance = super().load_from_file(file_path)
 
-        if not issubclass(instance.__class__, NoisePredictor):
-            raise ValueError(f"Loaded model from {file_path} is not an NoisePredictor")
+        if not issubclass(instance.__class__, Predictor):
+            raise ValueError(f"Loaded model from {file_path} is not a Predictor")
 
         return instance
 
 
 # Model is conditioned on timestep from range [0, T] inclusive.
-class NoisePredictorUNet(NoisePredictor):
+class NoisePredictorUNet(Predictor):
     def __init__(
         self,
         *,
@@ -150,6 +180,7 @@ class NoisePredictorUNet(NoisePredictor):
         self.n_channels = n_channels
         self.img_width = img_width
         self.img_height = img_height
+        self.target = PredictionTarget.Noise
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
         self.file_name = (
@@ -201,9 +232,9 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
         T = assert_type(scheduler_config.get("num_train_timesteps"), int)
         prediction_type = scheduler_config.get("prediction_type")
 
-        if prediction_type != "epsilon":
+        if prediction_type != PredictionTarget.Noise.to_hf():
             logger.warning(
-                f"Loaded scheduler prediction_type '{prediction_type}' is not 'epsilon'."
+                f"Loaded scheduler prediction_type '{prediction_type}' is not '{PredictionTarget.Noise.to_hf()}'."
             )
 
         super().__init__(
@@ -216,3 +247,9 @@ class NoisePredictorHuggingface(NoisePredictorUNet):
         self.unet = load_unet_pretrained(
             model_id, unet_class=unet_class, torch_dtype=dtype
         )
+
+    def load(self):
+        raise NotImplementedError("Not supported")
+
+    def save(self, **extra_metadata):
+        raise NotImplementedError("Not supported")

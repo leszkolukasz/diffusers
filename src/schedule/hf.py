@@ -1,9 +1,8 @@
-from src.common import load_scheduler_config
 from abc import ABC
 
 import torch
 
-from src.common import assert_type
+from src.common import assert_type, load_scheduler_config
 from src.timestep import Timestep, TimestepConfig
 
 

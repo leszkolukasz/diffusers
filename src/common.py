@@ -1,8 +1,7 @@
 from typing import Any, Type, cast
-from diffusers import UNet2DModel, ModelMixin, DDPMScheduler
-
 
 import torch
+from diffusers import DDPMScheduler, UNet2DModel
 
 
 def get_device():

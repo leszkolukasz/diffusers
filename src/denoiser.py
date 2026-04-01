@@ -4,42 +4,42 @@ from abc import ABC, abstractmethod
 import torch
 from loguru import logger
 
-from src.model import ModuleMetadata, NoisePredictor
+from src.model import ModuleMetadata, Predictor
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
 
 class Denoiser(ABC):
-    model: NoisePredictor
+    model: Predictor
     schedules: ScheduleGroup
 
     def __init__(
         self,
         *,
-        model: NoisePredictor,
+        model: Predictor,
         schedules: ScheduleGroup,
     ):
         self.model = model
         self.schedules = schedules
 
-        alpha_schedule_meta = model.metadata.get(ModuleMetadata.AlphaSchedule, None)
-        sigma_schedule_meta = model.metadata.get(ModuleMetadata.SigmaSchedule, None)
+        schedule_meta_checks = (
+            (ModuleMetadata.AlphaSchedule, "alpha"),
+            (ModuleMetadata.SigmaSchedule, "sigma"),
+        )
 
-        if (
-            alpha_schedule_meta is not None
-            and schedules.alpha.__class__.__name__ != alpha_schedule_meta
-        ):
-            logger.warning(
-                f"Denoiser model was trained with alpha schedule '{alpha_schedule_meta}', but current schedule is '{schedules.alpha.__class__.__name__}'"
-            )
+        for meta_key, schedule_attr in schedule_meta_checks:
+            trained_schedule_meta = model.metadata.get(meta_key, None)
+            current_schedule = getattr(schedules, schedule_attr, None)
 
-        if (
-            sigma_schedule_meta is not None
-            and schedules.sigma.__class__.__name__ != sigma_schedule_meta
-        ):
-            logger.warning(
-                f"Denoiser model was trained with sigma schedule '{sigma_schedule_meta}', but current schedule is '{schedules.sigma.__class__.__name__}'"
-            )
+            if trained_schedule_meta is None or current_schedule is None:
+                continue
+
+            current_schedule_name = current_schedule.__class__.__name__
+            if current_schedule_name != trained_schedule_meta:
+                logger.warning(
+                    f"Denoiser model was trained with {schedule_attr} schedule '{trained_schedule_meta}', "
+                    f"but current schedule is '{current_schedule_name}'"
+                )
 
     # Assumes t_prev < t
     @torch.no_grad()
