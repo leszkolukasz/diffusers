@@ -11,8 +11,8 @@ dependencies = [
     "loguru>=0.7.3",
     "numpy>=2.3.4",
     "plotly>=6.3.1",
-    "torch>=2.9.0",
-    "torchvision>=0.24.0",
+    "torch==2.4.1+cu121",
+    "torchvision==0.19.1+cu121",
     "tqdm>=4.67.1",
 ]
 
@@ -21,6 +21,16 @@ dev = [
     "ruff>=0.14.10",
     "ty>=0.0.10",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }
 
 [tool.ty.src]
 exclude = ["**/nvidia"]

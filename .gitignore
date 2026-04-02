@@ -13,3 +13,5 @@ generated
 models
 
 .ruff_cache/
+
+*.sif
