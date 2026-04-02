@@ -37,6 +37,8 @@ class HeunODESolver(ContinuousSolver):
         if s.steps.max() > 0.0:
             k2 = self.equation.drift(x_s_euler, s)
             x_s = x_t + h / 2 * (k1 + k2)
+        else:
+            x_s = x_s_euler
 
         return x_s
 

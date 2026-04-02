@@ -47,7 +47,9 @@ SCHEDULE_CONFIGS = {
     },
     "edm": {
         "alpha_schedule": lambda: ConstantAlphaSchedule(1.0),
-        "sigma_schedule": LinearSigmaSchedule,  # In this setting sigma_EDM(t) = sigma(t)
+        "sigma_schedule": lambda: LinearSigmaSchedule(
+            exploding=True
+        ),  # In this setting sigma_EDM(t) = sigma(t)
     },
 }
 

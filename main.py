@@ -137,10 +137,14 @@ def generate():
     # timesteps.steps = timesteps.steps.cuda()
     # timesteps = timesteps.reverse()
 
-    timesteps = (EDMSamplingSchedule(T=PREDICTOR_T).get_timesteps(n_steps=100)).cuda()
+    timesteps = EDMSamplingSchedule(T=PREDICTOR_T).get_timesteps(n_steps=100).cuda()
 
     n_samples = 10
-    generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
+    generated = generator.generate(
+        n_samples=n_samples,
+        timesteps=timesteps,
+        variance_exploding=(SCHEDULE_CONFIG_NAME == "edm"),
+    )
 
     for i in range(n_samples):
         img = unnormalize(generated[i])

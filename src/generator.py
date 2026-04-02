@@ -28,6 +28,7 @@ class Generator:
         n_steps: int | None = None,
         timesteps: Timestep | None = None,
         skip_last_step: bool = False,
+        variance_exploding: bool = False,
     ) -> torch.Tensor:
         if n_steps is None and timesteps is None:
             n_steps = int(self.solver.equation.model.timestep_config.T) - 1
@@ -37,9 +38,6 @@ class Generator:
             )
 
         device = next(self.solver.equation.model.parameters()).device
-        x_t = torch.randn(
-            n_samples, self.n_channels, self.img_width, self.img_height, device=device
-        )
 
         if TYPE_CHECKING:
             assert n_steps is not None
@@ -64,6 +62,18 @@ class Generator:
             )
 
         logger.info(f"Using timesteps: {timesteps.steps.cpu().numpy()}")
+
+        x_t = torch.randn(
+            n_samples, self.n_channels, self.img_width, self.img_height, device=device
+        )
+
+        if variance_exploding:
+            logger.info("Using variance exploding noise for generation.")
+            t_start = timesteps[0]
+            sigma_start = self.solver.equation.schedules.edm_sigma(t_start).view(
+                -1, 1, 1, 1
+            )
+            x_t = x_t * sigma_start
 
         for i in range(len(timesteps) - 1):
             x_t = self.solver.step(x_t, timesteps[i], timesteps[i + 1])

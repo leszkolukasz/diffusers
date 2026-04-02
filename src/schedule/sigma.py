@@ -18,7 +18,15 @@ class SigmaSchedule(ABC):
 
 
 class LinearSigmaSchedule(SigmaSchedule):
+    exploding: bool = False
+
+    def __init__(self, exploding: bool = False):
+        self.exploding = exploding
+
     def __call__(self, t: Timestep):
+        if self.exploding:
+            return t.steps
+
         return t.adapt(self.timestep_config).steps
 
     def derivative(self, t: Timestep):
