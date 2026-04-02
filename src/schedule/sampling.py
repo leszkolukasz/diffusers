@@ -46,7 +46,7 @@ class AYSConfig:
 
 
 class AYSSamplingSchedule(SamplingSchedule):
-    denoiser: Solver
+    denoiser: Solver  # TODO: We only need model and schedules. Change it and then remove ciircular import problem.
     dataloader: DataLoader
     timestep_config: TimestepConfig
 

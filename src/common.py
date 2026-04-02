@@ -2,6 +2,10 @@ from typing import Any, Type, cast
 
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
+from torch.utils.data import DataLoader, DistributedSampler
+from torchvision import transforms
+
+from src.distributed import RANK, WORLD_SIZE, is_distributed
 
 
 def get_device():
@@ -40,3 +44,41 @@ def load_scheduler_config(
             dict,
             scheduler_class.load_config(model_id, subfolder="scheduler", **kwargs),  # type: ignore
         )
+
+
+def unnormalize(img: torch.Tensor, mean, std) -> torch.Tensor:
+    transform = transforms.Normalize(
+        (-torch.tensor(mean) / torch.tensor(std)),
+        (1.0 / torch.tensor(std)),
+    )
+    return transform(img)
+
+
+def get_dataloader(
+    batch_size, mean, std, dataset_class, train=True, shuffle=True, num_workers=2
+):
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ]
+    )
+
+    dataset = dataset_class(root="./data", download=True, transform=transform)  # ty: ignore
+
+    sampler = None
+    if is_distributed():
+        sampler = DistributedSampler(
+            dataset, num_replicas=WORLD_SIZE, rank=RANK, shuffle=shuffle
+        )
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle if sampler is None else False,
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        sampler=sampler,
+    )
+
+    return loader

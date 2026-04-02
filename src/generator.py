@@ -36,7 +36,7 @@ class Generator:
                 " For continuous generation, provide max_t as well."
             )
 
-        device = next(self.solver.model.parameters()).device
+        device = next(self.solver.equation.model.parameters()).device
         x_t = torch.randn(
             n_samples, self.n_channels, self.img_width, self.img_height, device=device
         )
@@ -66,6 +66,6 @@ class Generator:
         logger.info(f"Using timesteps: {timesteps.steps.cpu().numpy()}")
 
         for i in range(len(timesteps) - 1):
-            x_t = self.solver.denoise(x_t, timesteps[i], timesteps[i + 1])
+            x_t = self.solver.step(x_t, timesteps[i], timesteps[i + 1])
 
         return x_t

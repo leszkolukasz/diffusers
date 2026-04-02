@@ -9,7 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from diffusion import diffuse
+from src.diffusion import diffuse
 from src.distributed import RANK, is_distributed
 from src.model import Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup

@@ -18,7 +18,7 @@ class EtaSchedule(ABC):
         self.sigma = sigma_schedule
 
     @abstractmethod
-    def __call__(self, t: Timestep, s: Timestep) -> torch.Tensor:
+    def __call__(self, t: Timestep, s: Timestep | None = None) -> torch.Tensor:
         pass
 
 
@@ -26,12 +26,12 @@ class ConstantEtaSchedule(EtaSchedule):
     def __init__(self, eta_value: float):
         self.eta_value = eta_value
 
-    def __call__(self, t: Timestep, s: Timestep) -> torch.Tensor:
+    def __call__(self, t: Timestep, s: Timestep | None = None) -> torch.Tensor:
         return torch.tensor(self.eta_value, device=t.steps.device)
 
 
 class DDPMEtaSchedule(EtaSchedule):
-    def __call__(self, t: Timestep, s: Timestep) -> torch.Tensor:
+    def __call__(self, t: Timestep, s: Timestep | None = None) -> torch.Tensor:
         adapted_t = t.adapt(self.timestep_config)
         adapted_s = s.adapt(self.timestep_config)
 

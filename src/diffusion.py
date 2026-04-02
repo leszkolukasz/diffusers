@@ -13,7 +13,7 @@ def diffuse(x0: Tensor, t: Timestep, schedules: ScheduleGroup) -> tuple[Tensor, 
     return alpha * x0 + sigma * noise, noise
 
 
-# Samples from p(x_t | x__{s}) where t > s
+# Samples from p(x_t | x_s) where t > s
 def diffuse_from(
     x_0: Tensor,
     x_s: Tensor,
