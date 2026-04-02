@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Iterable, Protocol
 
 import torch
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 from src.diffusion import diffuse
 from src.distributed import RANK, is_distributed
-from src.model import Predictor, PredictorMetadata
+from src.model import PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
@@ -20,13 +21,19 @@ class DatasetProtocol(Protocol):
     def __iter__(self) -> Iterable[tuple[torch.Tensor, torch.Tensor]]: ...
 
 
+class TimeSampler(StrEnum):
+    UNIFORM_DISCRETE = "uniform_discrete"
+    UNIFORM_CONTINUOUS = "uniform_continuous"
+    EDM = "edm"
+
+
 @dataclass
 class TrainingConfig:
     epochs: int = 1000
     lr: float = 1e-4
     checkpoint_dir: str = "models/"
-    checkpoint_interval_steps: int = 5
-    continuous_time: bool = True
+    checkpoint_interval_steps: int = 100
+    time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
 
 
 class Trainer:
@@ -49,7 +56,7 @@ class Trainer:
         self.config = config
 
         self.optimizer = optim.AdamW(self.raw_model.parameters(), lr=self.config.lr)
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.MSELoss(reduction="none")
 
         self.current_epoch = 0
         self.total_steps_executed = 0
@@ -123,19 +130,31 @@ class Trainer:
 
                 X = X.to(device)
 
-                if self.config.continuous_time:
-                    t = torch.rand(X.size(0), device=X.device) * max_t
-                else:
-                    t = torch.randint(1, int(max_t) + 1, (X.size(0),), device=X.device)
+                match self.config.time_sampler:
+                    case TimeSampler.UNIFORM_CONTINUOUS:
+                        t = torch.rand(X.size(0), device=X.device) * max_t
+                    case TimeSampler.UNIFORM_DISCRETE:
+                        t = torch.randint(
+                            1, int(max_t) + 1, (X.size(0),), device=X.device
+                        )
+                    case TimeSampler.EDM:
+                        P_mean = -1.2
+                        P_std = 1.2
+                        t = torch.randn(X.size(0), device=X.device) * P_std + P_mean
+                        t = torch.exp(t)
+                        t = torch.clamp(t, max=max_t)
 
                 t = Timestep(self.raw_model.timestep_config, t)
 
                 X_noisy, noise = diffuse(X, t, self.schedules)
-                noise_pred = self.model(X_noisy, timestep=t)
+                pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
 
-                loss = self.criterion(
-                    noise_pred, noise
-                )  # TODO: Add loss weighting (EDM)
+                target = noise if self.raw_model.target == PredictionTarget.Noise else X
+
+                weight = self.raw_model.loss_weight(t, self.schedules).view(-1, 1, 1, 1)
+                loss = self.criterion(pred, target) * weight
+                loss = loss.mean()
+
                 loss.backward()
 
                 self.optimizer.step()

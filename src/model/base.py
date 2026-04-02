@@ -1,20 +1,13 @@
 import os
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import Self, Type
+from typing import Self
 
 import torch
-from diffusers import DDPMScheduler
-from diffusers.models import UNet2DModel
 from loguru import logger
 from torch import nn
 
-from src.common import (
-    assert_type,
-    load_scheduler_config,
-    load_unet_config,
-    load_unet_pretrained,
-)
+from src.schedule import ScheduleGroup
 from src.timestep import Timestep, TimestepConfig
 
 
@@ -65,6 +58,9 @@ class PersistableModule(nn.Module):
             raise ValueError(f"Model {file_path} does not contain metadata 'type'.")
 
         target_class = cls._get_subclass_by_name(type_name)
+        if not target_class:
+            raise ValueError(f"Subclass '{type_name}' not found.")
+
         model = target_class(**config)
 
         model.load_state_dict(checkpoint["state_dict"])
@@ -83,9 +79,7 @@ class PersistableModule(nn.Module):
             if found:
                 return found
 
-        raise ValueError(
-            f"Class '{name}' not found in subclass hierarchy of {cls.__name__}"
-        )
+        return None
 
 
 class PredictionTarget(StrEnum):
@@ -93,6 +87,13 @@ class PredictionTarget(StrEnum):
     x0 = "x0"
     Score = "score"
     Vecolcity = "velocity"
+
+    @staticmethod
+    def from_value(value: str) -> "PredictionTarget":
+        for target in PredictionTarget:
+            if target.value == value:
+                return target
+        raise ValueError(f"Unsupported PredictionTarget value: {value}")
 
     def to_hf(self) -> str:
         match self:
@@ -116,8 +117,18 @@ class Predictor(PersistableModule, ABC):
     target: PredictionTarget
 
     @abstractmethod
-    def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        timestep: Timestep,
+        schedules: ScheduleGroup | None = None,
+    ) -> torch.Tensor:
         pass
+
+    def loss_weight(
+        self, t: Timestep, schedules: ScheduleGroup | None = None
+    ) -> torch.Tensor:
+        return torch.tensor(1.0, device=t.device)
 
     def save(self, **extra_metadata):
         super().save(
@@ -161,98 +172,3 @@ class Predictor(PersistableModule, ABC):
             raise ValueError(f"Loaded model from {file_path} is not a Predictor")
 
         return instance
-
-
-# Model is conditioned on timestep from range [0, T] inclusive.
-class PredictorUNet(Predictor):
-    def __init__(
-        self,
-        *,
-        n_channels: int,
-        img_width: int,
-        img_height: int,
-        T: int,
-        suffix: str | None = None,
-        target: PredictionTarget = PredictionTarget.Noise,
-        **_kwargs,
-    ):
-        super().__init__()
-        assert img_width == img_height, "Only square images are supported"
-
-        self.n_channels = n_channels
-        self.img_width = img_width
-        self.img_height = img_height
-        self.target = target
-
-        self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = (
-            f"{target.value}_predictor_unet{suffix if suffix is not None else ''}.pth"
-        )
-        self.unet = UNet2DModel(
-            sample_size=img_width,
-            in_channels=n_channels,
-            out_channels=n_channels,
-            layers_per_block=2,
-            block_out_channels=(32, 64, 128),
-            down_block_types=(
-                "DownBlock2D",
-                "DownBlock2D",
-                "AttnDownBlock2D",
-            ),
-            up_block_types=(
-                "AttnUpBlock2D",
-                "UpBlock2D",
-                "UpBlock2D",
-            ),
-        )
-
-    # Input: (batch_size, C, H, W)
-    def forward(self, x: torch.Tensor, timestep: Timestep) -> torch.Tensor:
-        timestep = timestep.adapt(self.timestep_config)
-        return self.unet(x, timestep=timestep.steps).sample
-
-
-class NoisePredictorHuggingface(PredictorUNet):
-    def __init__(
-        self,
-        *,
-        model_id: str,
-        dtype: torch.dtype = torch.float32,
-        unet_class: Type = UNet2DModel,
-        scheduler_class: Type = DDPMScheduler,
-        suffix: str | None = None,
-        **_kwargs,
-    ):
-        suffix_str = "" if suffix is None else suffix
-
-        model_config = load_unet_config(model_id, unet_class)
-        n_channels = assert_type(model_config.get("in_channels"), int)
-        img_width = assert_type(model_config.get("sample_size"), int)
-        img_height = img_width
-
-        scheduler_config = load_scheduler_config(model_id, scheduler_class)
-        T = assert_type(scheduler_config.get("num_train_timesteps"), int)
-        prediction_type = scheduler_config.get("prediction_type")
-
-        if prediction_type != PredictionTarget.Noise.to_hf():
-            logger.warning(
-                f"Loaded scheduler prediction_type '{prediction_type}' is not '{PredictionTarget.Noise.to_hf()}'."
-            )
-
-        super().__init__(
-            n_channels=n_channels,
-            img_width=img_width,
-            img_height=img_height,
-            T=T,
-            target=PredictionTarget.Noise,
-            suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
-        )
-        self.unet = load_unet_pretrained(
-            model_id, unet_class=unet_class, torch_dtype=dtype
-        )
-
-    def load(self):
-        raise NotImplementedError("Not supported")
-
-    def save(self, **extra_metadata):
-        raise NotImplementedError("Not supported")

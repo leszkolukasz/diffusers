@@ -7,7 +7,7 @@ import torchvision
 from loguru import logger
 
 from src import distributed
-from src.common import get_dataloader
+from src.common import get_dataloader, unnormalize
 from src.config import (
     BATCH_SIZE,
     DATASET_CONFIG_NAME,
@@ -22,21 +22,37 @@ from src.config import (
     eta_config,
     schedule_config,
     solver_config,
+    timesampler_config,
 )
 from src.equation import Equation
 from src.generator import Generator
-from src.model import NoisePredictorHuggingface, PredictorUNet
+from src.model import (  # noqa
+    NoisePredictorHuggingface,
+    Predictor,
+    PredictorEDM,
+    PredictorUNet,
+)
 from src.schedule import ScheduleGroup
-from src.schedule.sampling import AYSConfig, AYSSamplingSchedule, LinearSamplingSchedule
+from src.schedule.sampling import (  # noqa
+    AYSConfig,
+    AYSSamplingSchedule,
+    EDMSamplingSchedule,
+    LinearSamplingSchedule,
+)
 from src.solver import Solver
-from src.trainer import Trainer
+from src.trainer import Trainer, TrainingConfig
 
-model_id = "1aurent/ddpm-mnist"
+# model_id = "1aurent/ddpm-mnist"
 # model_id = "google/ddpm-cifar10-32"
-# model_id = "google/ddpm-celebahq-256"
+model_id = "google/ddpm-celebahq-256"
 
-alpha_schedule = schedule_config["alpha_schedule"]()  # ty: ignore
-sigma_schedule = schedule_config["sigma_schedule"]()  # ty: ignore
+schedule_kwargs = {}
+if SCHEDULE_CONFIG_NAME == "ddpm":
+    schedule_kwargs["model_id"] = model_id
+
+alpha_schedule = schedule_config["alpha_schedule"](**schedule_kwargs)  # ty: ignore
+sigma_schedule = schedule_config["sigma_schedule"](**schedule_kwargs)  # ty: ignore
+
 eta_schedule = eta_config(alpha_schedule, sigma_schedule)  # ty: ignore
 
 schedules = ScheduleGroup(
@@ -50,9 +66,10 @@ def train():
     logger.info("Starting training")
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
     logger.info(f"Using predictor T: {PREDICTOR_T}")
+    logger.info(f"Using timesampler config: {timesampler_config}")
     logger.info(f"Using dataset config: {DATASET_CONFIG_NAME}")
 
-    model = PredictorUNet(
+    model = PredictorEDM(
         T=PREDICTOR_T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
@@ -64,13 +81,12 @@ def train():
     trainer = Trainer(
         model=model,
         schedules=schedules,
+        config=TrainingConfig(time_sampler=timesampler_config),
     )
     trainer.load_checkpoint()
 
     dataloader = get_dataloader(
         batch_size=BATCH_SIZE,
-        mean=dataset_config["mean"],
-        std=dataset_config["std"],
         dataset_class=dataset_config["class"],
     )
     trainer.train(dataloader)
@@ -82,10 +98,10 @@ def generate():
     if not os.path.exists(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}"):
         os.makedirs(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
-    model = NoisePredictorHuggingface(model_id=model_id).cuda()
-    # model = Predictor.load_from_file("./models/noise_predictor_unet_fashion.pth").cuda()
+    # model = NoisePredictorHuggingface(model_id=model_id).cuda()
+    model = Predictor.load_from_file("./models/x0_predictor_edm_mnist.pth").cuda()
 
-    # model.load()
+    model.load()
     model.eval()
 
     logger.info(f"Using schedule config: {SCHEDULE_CONFIG_NAME}")
@@ -121,18 +137,13 @@ def generate():
     # timesteps.steps = timesteps.steps.cuda()
     # timesteps = timesteps.reverse()
 
-    timesteps = (
-        LinearSamplingSchedule(max_t=0.95)
-        .get_timesteps(n_steps=50)
-        .as_discrete(PREDICTOR_T)
-    )
-    timesteps.steps = timesteps.steps.cuda()
+    timesteps = (EDMSamplingSchedule(T=PREDICTOR_T).get_timesteps(n_steps=100)).cuda()
 
     n_samples = 10
     generated = generator.generate(n_samples=n_samples, timesteps=timesteps)
 
     for i in range(n_samples):
-        img = generated[i]
+        img = unnormalize(generated[i])
         torchvision.utils.save_image(
             img, f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}/{i + 1}.png"
         )
@@ -166,8 +177,6 @@ def ays():
         denoiser=solver,
         dataloader=get_dataloader(
             batch_size=BATCH_SIZE,
-            mean=dataset_config["mean"],
-            std=dataset_config["std"],
             dataset_class=dataset_config["class"],
         ),
         config=AYSConfig(

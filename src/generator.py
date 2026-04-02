@@ -30,7 +30,7 @@ class Generator:
         skip_last_step: bool = False,
     ) -> torch.Tensor:
         if n_steps is None and timesteps is None:
-            n_steps = int(self.solver.model.timestep_config.T) - 1
+            n_steps = int(self.solver.equation.model.timestep_config.T) - 1
             logger.info(
                 f"Neither n_steps nor timesteps were provided. Using max number of steps according to model config: {n_steps}."
                 " For continuous generation, provide max_t as well."
@@ -45,7 +45,7 @@ class Generator:
             assert n_steps is not None
 
         if timesteps is None:
-            max_t = max_t or self.solver.model.timestep_config.T
+            max_t = max_t or self.solver.equation.model.timestep_config.T
             timesteps_tensor = torch.linspace(
                 max_t,
                 0.0,
@@ -58,7 +58,7 @@ class Generator:
 
             timesteps = Timestep(
                 TimestepConfig(
-                    kind="continuous", T=self.solver.model.timestep_config.T
+                    kind="continuous", T=self.solver.equation.model.timestep_config.T
                 ),
                 timesteps_tensor,
             )

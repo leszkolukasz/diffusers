@@ -46,21 +46,17 @@ def load_scheduler_config(
         )
 
 
-def unnormalize(img: torch.Tensor, mean, std) -> torch.Tensor:
-    transform = transforms.Normalize(
-        (-torch.tensor(mean) / torch.tensor(std)),
-        (1.0 / torch.tensor(std)),
-    )
-    return transform(img)
+def unnormalize(img: torch.Tensor) -> torch.Tensor:
+    img = (img + 1.0) / 2.0
+
+    return torch.clamp(img, 0.0, 1.0)
 
 
-def get_dataloader(
-    batch_size, mean, std, dataset_class, train=True, shuffle=True, num_workers=2
-):
+def get_dataloader(batch_size, dataset_class, train=True, shuffle=True, num_workers=2):
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(mean, std),
+            transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     )
 

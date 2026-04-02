@@ -52,6 +52,16 @@ class Timestep:
         assert 0 <= idx < len(self), "Index out of range"
         return Timestep(config=self.config, steps=self.steps[idx : idx + 1])
 
+    @property
+    def device(self):
+        return self.steps.device
+
+    def cuda(self) -> "Timestep":
+        return self.to("cuda")
+
+    def to(self, device) -> "Timestep":
+        return Timestep(config=self.config, steps=self.steps.to(device))
+
     def reverse(self) -> "Timestep":
         reversed_steps = torch.flip(self.steps, dims=[0])
         return Timestep(config=self.config, steps=reversed_steps)

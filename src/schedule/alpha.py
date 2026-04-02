@@ -17,6 +17,17 @@ class AlphaSchedule(ABC):
         raise NotImplementedError("Discrete only schedule does not support derivative.")
 
 
+class ConstantAlphaSchedule(AlphaSchedule):
+    def __init__(self, alpha: float):
+        self.alpha = alpha
+
+    def __call__(self, t: Timestep):
+        return torch.tensor(self.alpha, device=t.steps.device)
+
+    def derivative(self, t: Timestep):
+        return torch.tensor(0.0, device=t.steps.device)
+
+
 class LinearAlphaSchedule(AlphaSchedule):
     def __call__(self, t: Timestep):
         return 1.0 - t.adapt(self.timestep_config).steps

@@ -54,6 +54,7 @@ class ScheduleGroup:
     lambda_: LambdaSchedule
     eta: EtaSchedule
     edm_sigma: EDMSigmaSchedule
+    s: AlphaSchedule  # alias for alpha
 
     def __init__(
         self,
@@ -66,3 +67,4 @@ class ScheduleGroup:
         self.eta = eta_schedule
         self.lambda_ = LambdaSchedule(alpha_schedule, sigma_schedule)
         self.edm_sigma = EDMSigmaSchedule(alpha_schedule, sigma_schedule)
+        self.s = alpha_schedule

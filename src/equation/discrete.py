@@ -27,7 +27,7 @@ class GeneralizedDiscrete(DiscreteEquation):
         eta_s = self.schedules.eta(t, s).view(-1, 1, 1, 1)
 
         assert self.model.target == PredictionTarget.Noise
-        noise_pred = self.model(x_t, timestep=t)
+        noise_pred = self.model(x_t, timestep=t, schedules=self.schedules)
 
         mean = (alpha_s / alpha_t) * x_t + (
             sigma_s * torch.sqrt(1 - eta_s**2) - sigma_t * alpha_s / alpha_t
