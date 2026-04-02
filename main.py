@@ -27,9 +27,10 @@ from src.config import (
 from src.equation import Equation
 from src.generator import Generator
 from src.model import (  # noqa
-    NoisePredictorHuggingface,
+    PredictorHuggingface,
     Predictor,
     PredictorEDM,
+    PredictorEDM2,
     PredictorUNet,
 )
 from src.schedule import ScheduleGroup
@@ -69,7 +70,7 @@ def train():
     logger.info(f"Using timesampler config: {timesampler_config}")
     logger.info(f"Using dataset config: {DATASET_CONFIG_NAME}")
 
-    model = PredictorEDM(
+    model = PredictorEDM2(
         T=PREDICTOR_T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
@@ -99,7 +100,8 @@ def generate():
         os.makedirs(f"generated/{SOLVER_CONFIG_NAME}_{SCHEDULE_CONFIG_NAME}")
 
     # model = NoisePredictorHuggingface(model_id=model_id).cuda()
-    model = Predictor.load_from_file("./models/x0_predictor_edm_mnist.pth").cuda()
+    model = Predictor.load_from_file("./models/x0_predictor_edm2_mnist.pth").cuda()
+    print(sum(p.numel() for p in model.parameters()))
 
     model.load()
     model.eval()

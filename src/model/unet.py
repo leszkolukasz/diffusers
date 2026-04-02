@@ -70,7 +70,7 @@ class PredictorUNet(Predictor):
         return self.unet(x, timestep=timestep.steps).sample
 
 
-class NoisePredictorHuggingface(PredictorUNet):
+class PredictorHuggingface(PredictorUNet):
     def __init__(
         self,
         *,
