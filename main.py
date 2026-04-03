@@ -1,9 +1,10 @@
 import os
 import sys
+from datetime import datetime
 
 import torch
-import torch.distributed as dist
 import torchvision
+import wandb
 from loguru import logger
 
 from src import distributed
@@ -24,13 +25,14 @@ from src.config import (
     solver_config,
     timesampler_config,
 )
+from src.distributed import get_rank, is_distributed
 from src.equation import Equation
 from src.generator import Generator
 from src.model import (  # noqa
-    PredictorHuggingface,
     Predictor,
     PredictorEDM,
     PredictorEDM2,
+    PredictorHuggingface,
     PredictorUNet,
 )
 from src.schedule import ScheduleGroup
@@ -70,7 +72,21 @@ def train():
     logger.info(f"Using timesampler config: {timesampler_config}")
     logger.info(f"Using dataset config: {DATASET_CONFIG_NAME}")
 
-    model = PredictorEDM2(
+    date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    if get_rank() == 0 and is_distributed():
+        wandb.init(
+            project="prosem",
+            name=f"EDM_{DATASET_CONFIG_NAME}_{date}",
+            config={
+                "batch_size": BATCH_SIZE,
+                "predictor_t": PREDICTOR_T,
+                "dataset": DATASET_CONFIG_NAME,
+                "time_sampler": timesampler_config.value,
+            },
+        )
+
+    model = PredictorEDM(
         T=PREDICTOR_T,
         suffix=f"_{DATASET_CONFIG_NAME}",
         n_channels=dataset_config["channels"],  # ty: ignore
@@ -93,6 +109,9 @@ def train():
     trainer.train(dataloader)
 
     logger.success("Training complete")
+
+    if get_rank() == 0 and is_distributed():
+        wandb.finish()
 
 
 def generate():
@@ -227,5 +246,5 @@ if __name__ == "__main__":
             logger.error(f"Unknown mode: {mode}")
 
     if distributed.is_distributed():
-        dist.barrier()
+        torch.distributed.barrier()
         distributed.cleanup()

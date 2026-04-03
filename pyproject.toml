@@ -14,6 +14,7 @@ dependencies = [
     "torch==2.4.1+cu121",
     "torchvision==0.19.1+cu121",
     "tqdm>=4.67.1",
+    "wandb>=0.25.1",
 ]
 
 [dependency-groups]
@@ -33,6 +34,9 @@ torchvision = { index = "pytorch-cu121" }
 torchaudio = { index = "pytorch-cu121" }
 
 [tool.ty.src]
+exclude = ["**/nvidia"]
+
+[tool.ruff]
 exclude = ["**/nvidia"]
 
 [tool.ty.rules]

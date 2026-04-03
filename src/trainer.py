@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Iterable, Protocol
 
 import torch
+import wandb
 from loguru import logger
 from torch import nn, optim
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -11,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.diffusion import diffuse
-from src.distributed import RANK, is_distributed
+from src.distributed import get_rank, is_distributed
 from src.model import PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
@@ -61,7 +62,7 @@ class Trainer:
         self.current_epoch = 0
         self.total_steps_executed = 0
 
-        if RANK == 0:
+        if get_rank() == 0:
             os.makedirs(self.config.checkpoint_dir, exist_ok=True)
 
     def _get_trainer_state_path(self):
@@ -122,7 +123,7 @@ class Trainer:
             pbar = tqdm(
                 dataloader,
                 desc=f"Epoch {epoch + 1}/{self.config.epochs}",
-                disable=RANK != 0,
+                disable=get_rank() != 0,
             )
 
             for batch_idx, (X, _) in enumerate(pbar):
@@ -165,16 +166,28 @@ class Trainer:
                 lr_scheduler.step()
 
                 total_loss += loss.item()
-                pbar.set_postfix({"loss": total_loss / (batch_idx + 1)})
+                avg_loss = total_loss / (batch_idx + 1)
+                pbar.set_postfix({"loss": avg_loss})
+
+                if get_rank() == 0 and is_distributed():
+                    wandb.log(
+                        {
+                            "train/loss_step": loss.item(),
+                            "train/loss_avg": avg_loss,
+                            "train/learning_rate": lr_scheduler.get_last_lr()[0],
+                            "train/epoch": epoch,
+                            "global_step": self.total_steps_executed,
+                        }
+                    )
 
                 if (
                     self.total_steps_executed % self.config.checkpoint_interval_steps
                     == 0
-                    and RANK == 0
+                    and get_rank() == 0
                 ):
                     self.save_checkpoint()
 
                 self.total_steps_executed += 1
 
-        if RANK == 0:
+        if get_rank() == 0:
             self.save_checkpoint()

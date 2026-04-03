@@ -5,7 +5,7 @@ from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import transforms
 
-from src.distributed import RANK, WORLD_SIZE, is_distributed
+from src.distributed import _RANK, _WORLD_SIZE, is_distributed
 
 
 def get_device():
@@ -65,7 +65,7 @@ def get_dataloader(batch_size, dataset_class, train=True, shuffle=True, num_work
     sampler = None
     if is_distributed():
         sampler = DistributedSampler(
-            dataset, num_replicas=WORLD_SIZE, rank=RANK, shuffle=shuffle
+            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=shuffle
         )
 
     loader = DataLoader(

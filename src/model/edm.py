@@ -2,9 +2,9 @@ import torch
 from diffusers.models import UNet2DModel
 
 from src.model import PredictionTarget, Predictor
+from src.model.nvidia.edm2 import UNet as UNetEDM2
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep, TimestepConfig
-from src.model.nvidia.edm2 import UNet as UNetEDM2
 
 
 class PredictorEDM(Predictor):
