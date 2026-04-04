@@ -54,7 +54,7 @@ class TrainingConfig:
     epochs: int = 1000
     lr: float = 1e-4
     checkpoint_dir: str = "models/"
-    checkpoint_interval_steps: int = 100
+    checkpoint_interval_steps: int = 1000
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
     use_ema: bool = True
 

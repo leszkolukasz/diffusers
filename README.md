@@ -124,3 +124,7 @@ There is subset of schedulers called `Sampling schedulers`. This refers to AYS, 
 Many places refer to variable `T`. This usually means that something is meant to operate on [0, T] time interval e.g. `solver_T`
 denotes a range on which a solver is meant to operate (sampled time steps should be in [0, T]) and `predictor_T`
 denotes that model was trained on range [0, T].
+
+## Troubleshooting
+
+If Wandb reaches intialization timeout try to set `--run-id` to some unique value.

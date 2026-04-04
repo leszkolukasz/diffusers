@@ -26,6 +26,7 @@ app = typer.Typer(help="Train model")
 
 @app.callback(invoke_without_command=True)
 def train(
+    run_id: str = typer.Option(None, "--run-id", help="Run id suffix for Wandb"),
     model_name: ModelType = typer.Option(
         ModelType.edm, "--model", help="Network architecture"
     ),
@@ -88,6 +89,8 @@ def train(
 
     if distributed.get_rank() == 0 and distributed.is_distributed():
         run_identifier = f"{model_name.value}_{schedule.value}_{dataset.value}"
+        if run_id:
+            run_identifier += f"_{run_id}"
 
         wandb.init(
             project="prosem",
