@@ -3,10 +3,10 @@ from typing import Any, Type, cast
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
-from src.config import DatasetConfig
 from torchvision import transforms
 
-from src.distributed import _RANK, _WORLD_SIZE, is_distributed
+from src.config import DatasetConfig
+from src.distributed import _RANK, _WORLD_SIZE, get_rank, is_distributed
 
 
 def get_device():
@@ -75,12 +75,22 @@ def get_dataloader(
     if dataset_config.split is not None:
         dataset_kwargs["split"] = dataset_config.split
 
+    if is_distributed() and get_rank() != 0:
+        torch.distributed.barrier()
+
+    should_download = True
+    if is_distributed():
+        should_download = get_rank() == 0
+
     dataset = dataset_config.dataset_class(
         root="./data",
-        download=True,  # ty: ignore
+        download=should_download,  # ty: ignore
         transform=transform,
         **dataset_kwargs,
     )
+
+    if is_distributed() and get_rank() == 0:
+        torch.distributed.barrier()
 
     sampler = None
     if is_distributed():

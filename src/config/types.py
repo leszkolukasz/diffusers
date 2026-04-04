@@ -1,6 +1,6 @@
-from enum import Enum
 from dataclasses import dataclass
-from typing import Callable, Type, TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, Callable, Type
 
 from torchvision.datasets import VisionDataset
 

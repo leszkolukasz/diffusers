@@ -2,6 +2,16 @@ from typing import Callable, Type
 
 from torchvision import datasets
 
+from src.config import (
+    DatasetConfig,
+    DatasetType,
+    EquationType,
+    EtaType,
+    ModelType,
+    ScheduleConfig,
+    ScheduleType,
+    SolverType,
+)
 from src.equation import (
     Equation,
     GeneralizedDifferential,
@@ -31,16 +41,6 @@ from src.solver import (
     Solver,
 )
 from src.trainer import TimeSampler
-from src.config import (
-    SolverType,
-    ScheduleType,
-    EtaType,
-    EquationType,
-    DatasetType,
-    ModelType,
-)
-
-from src.config import DatasetConfig, ScheduleConfig
 
 SOLVER_CONFIGS: dict[SolverType, Type[Solver]] = {
     SolverType.discrete: DiscreteSolver,

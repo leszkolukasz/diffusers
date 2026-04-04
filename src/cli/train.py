@@ -17,7 +17,6 @@ from src.config.presets import (
     SCHEDULE_CONFIGS,
     get_timesampler,
 )
-
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.trainer import Trainer, TrainingConfig
