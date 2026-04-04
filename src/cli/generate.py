@@ -8,16 +8,18 @@ from loguru import logger
 
 from src.common import unnormalize
 from src.config import (
-    EQUATION_CONFIGS,
-    ETA_CONFIGS,
-    SCHEDULE_CONFIGS,
-    SOLVER_CONFIGS,
     EquationType,
     EtaType,
     ModelType,
     SamplingScheduleType,
     ScheduleType,
     SolverType,
+)
+from src.config.presets import (
+    EQUATION_CONFIGS,
+    ETA_CONFIGS,
+    SCHEDULE_CONFIGS,
+    SOLVER_CONFIGS,
     get_solver_T,
 )
 from src.generator import Generator

@@ -3,6 +3,7 @@ from typing import Any, Type, cast
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
+from src.config import DatasetConfig
 from torchvision import transforms
 
 from src.distributed import _RANK, _WORLD_SIZE, is_distributed
@@ -54,24 +55,32 @@ def unnormalize(img: torch.Tensor) -> torch.Tensor:
 
 def get_dataloader(
     batch_size: int,
-    dataset_class: Type,
-    width: int,
-    height: int,
-    train=True,
+    dataset_config: DatasetConfig,
     shuffle=True,
     num_workers=2,
 ):
     transform = transforms.Compose(
         [
             transforms.RandomResizedCrop(
-                size=(height, width), scale=(0.8, 1.0), ratio=(0.75, 1.33)
+                size=(dataset_config.img_height, dataset_config.img_width),
+                scale=(0.8, 1.0),
+                ratio=(0.75, 1.33),
             ),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     )
 
-    dataset = dataset_class(root="./data", download=True, transform=transform)  # ty: ignore
+    dataset_kwargs = {}
+    if dataset_config.split is not None:
+        dataset_kwargs["split"] = dataset_config.split
+
+    dataset = dataset_config.dataset_class(
+        root="./data",
+        download=True,  # ty: ignore
+        transform=transform,
+        **dataset_kwargs,
+    )
 
     sampler = None
     if is_distributed():

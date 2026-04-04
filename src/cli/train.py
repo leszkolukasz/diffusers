@@ -5,16 +5,19 @@ from loguru import logger
 from src import distributed
 from src.common import get_dataloader
 from src.config import (
-    DATASET_CONFIGS,
-    ETA_CONFIGS,
-    MODEL_CONFIGS,
-    SCHEDULE_CONFIGS,
     DatasetType,
     EtaType,
     ModelType,
     ScheduleType,
+)
+from src.config.presets import (
+    DATASET_CONFIGS,
+    ETA_CONFIGS,
+    MODEL_CONFIGS,
+    SCHEDULE_CONFIGS,
     get_timesampler,
 )
+
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.trainer import Trainer, TrainingConfig
@@ -124,9 +127,7 @@ def train(
 
     dataloader = get_dataloader(
         batch_size=batch_size,
-        dataset_class=dataset_config.dataset_class,
-        width=dataset_config.img_width,
-        height=dataset_config.img_height,
+        dataset_config=dataset_config,
     )
 
     trainer.train(dataloader)
