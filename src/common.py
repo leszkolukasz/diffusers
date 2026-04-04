@@ -57,7 +57,7 @@ def get_dataloader(
     batch_size: int,
     dataset_config: DatasetConfig,
     shuffle=True,
-    num_workers=2,
+    num_workers=0,
 ):
     transform = transforms.Compose(
         [
@@ -95,7 +95,7 @@ def get_dataloader(
     sampler = None
     if is_distributed():
         sampler = DistributedSampler(
-            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=shuffle
+            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=False
         )
 
     loader = DataLoader(
