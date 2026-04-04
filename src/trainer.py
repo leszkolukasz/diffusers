@@ -1,3 +1,4 @@
+import copy
 import os
 from dataclasses import dataclass
 from enum import StrEnum
@@ -28,6 +29,26 @@ class TimeSampler(StrEnum):
     EDM = "edm"
 
 
+class ExpMovingAverageWrapper:
+    ema_model: nn.Module
+    decay: float
+
+    def __init__(self, model: nn.Module, decay: float = 0.999):
+        self.decay = decay
+        self.ema_model = copy.deepcopy(model)
+        self.ema_model.eval()
+
+        for param in self.ema_model.parameters():
+            param.requires_grad_(False)
+
+    @torch.no_grad()
+    def update(self, model: nn.Module):
+        for ema_param, new_param in zip(
+            self.ema_model.parameters(), model.parameters()
+        ):
+            ema_param.data.mul_(self.decay).add_(new_param.data, alpha=1.0 - self.decay)
+
+
 @dataclass
 class TrainingConfig:
     epochs: int = 1000
@@ -35,6 +56,7 @@ class TrainingConfig:
     checkpoint_dir: str = "models/"
     checkpoint_interval_steps: int = 100
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
+    use_ema: bool = True
 
 
 class Trainer:
@@ -70,14 +92,14 @@ class Trainer:
             self.config.checkpoint_dir, f"trainer_{self.raw_model.file_name}"
         )
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, model: nn.Module):
         metadata = {
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
             PredictorMetadata.EtaSchedule: self.schedules.eta.__class__.__name__,
         }
 
-        self.raw_model.save(**metadata)
+        model.save(**metadata)
 
         trainer_state = {
             "epoch": self.current_epoch,
@@ -102,7 +124,7 @@ class Trainer:
 
     def train(self, dataloader: DataLoader):
         device = next(self.model.parameters()).device
-        max_t = self.raw_model.timestep_config.T
+        solver_T = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -111,6 +133,11 @@ class Trainer:
             eta_min=1e-6,
             last_epoch=self.total_steps_executed - 1,
         )
+
+        ema_wrapper = None
+        if self.config.use_ema:
+            ema_wrapper = ExpMovingAverageWrapper(self.raw_model)
+            logger.info("Using Exponential Moving Average (EMA)")
 
         self.model.train()
         for epoch in range(self.current_epoch, self.config.epochs):
@@ -133,17 +160,17 @@ class Trainer:
 
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:
-                        t = torch.rand(X.size(0), device=X.device) * max_t
+                        t = torch.rand(X.size(0), device=X.device) * solver_T
                     case TimeSampler.UNIFORM_DISCRETE:
                         t = torch.randint(
-                            1, int(max_t) + 1, (X.size(0),), device=X.device
+                            1, int(solver_T) + 1, (X.size(0),), device=X.device
                         )
                     case TimeSampler.EDM:
                         P_mean = -1.2
                         P_std = 1.2
                         t = torch.randn(X.size(0), device=X.device) * P_std + P_mean
                         t = torch.exp(t)
-                        t = torch.clamp(t, max=max_t)
+                        t = torch.clamp(t, max=solver_T)
 
                 t = Timestep(self.raw_model.timestep_config, t)
 
@@ -165,6 +192,9 @@ class Trainer:
                 self.optimizer.step()
                 lr_scheduler.step()
 
+                if ema_wrapper is not None:
+                    ema_wrapper.update(self.raw_model)
+
                 total_loss += loss.item()
                 avg_loss = total_loss / (batch_idx + 1)
                 pbar.set_postfix({"loss": avg_loss})
@@ -183,12 +213,18 @@ class Trainer:
                     == 0
                     and get_rank() == 0
                 ):
-                    self.save_checkpoint()
+                    self.save_checkpoint(
+                        ema_wrapper.ema_model
+                        if ema_wrapper is not None
+                        else self.raw_model
+                    )
 
                 self.total_steps_executed += 1
 
         if get_rank() == 0:
-            self.save_checkpoint()
+            self.save_checkpoint(
+                ema_wrapper.ema_model if ema_wrapper is not None else self.raw_model
+            )
 
     def _log_metrics(
         self,

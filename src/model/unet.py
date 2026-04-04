@@ -12,12 +12,15 @@ from src.common import (
     load_unet_pretrained,
 )
 from src.model import PredictionTarget, Predictor
+from src.model.presets import UNET_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep, TimestepConfig
 
 
 # Model is conditioned on timestep from range [0, T] inclusive.
 class PredictorUNet(Predictor):
+    model_size: ModelSize
+
     def __init__(
         self,
         *,
@@ -25,6 +28,7 @@ class PredictorUNet(Predictor):
         img_width: int,
         img_height: int,
         T: int,
+        model_size: ModelSize = ModelSize.SMALL,
         suffix: str | None = None,
         target: PredictionTarget | str = PredictionTarget.Noise,
         **_kwargs,
@@ -38,25 +42,15 @@ class PredictorUNet(Predictor):
         self.target = (
             PredictionTarget.from_value(target) if isinstance(target, str) else target
         )
+        self.model_size = model_size
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}_predictor_unet{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_predictor_unet_{model_size.value}{suffix if suffix is not None else ''}.pth"
         self.unet = UNet2DModel(
             sample_size=img_width,
             in_channels=n_channels,
             out_channels=n_channels,
-            layers_per_block=2,
-            block_out_channels=(32, 64, 128),
-            down_block_types=(
-                "DownBlock2D",
-                "DownBlock2D",
-                "AttnDownBlock2D",
-            ),
-            up_block_types=(
-                "AttnUpBlock2D",
-                "UpBlock2D",
-                "UpBlock2D",
-            ),
+            **UNET_PRESETS[model_size],
         )
 
     # Input: (batch_size, C, H, W)
@@ -68,6 +62,17 @@ class PredictorUNet(Predictor):
     ) -> torch.Tensor:
         timestep = timestep.adapt(self.timestep_config)
         return self.unet(x, timestep=timestep.steps).sample
+
+    def save(self, **extra_metadata):
+        super().save(model_size=self.model_size.value, **extra_metadata)
+
+    def load(self):
+        super().load()
+        meta_model_size = self.metadata.get("model_size", None)
+        if meta_model_size is not None and meta_model_size != self.model_size.value:
+            logger.warning(
+                f"Loaded model model_size '{meta_model_size}' does not match current model_size '{self.model_size.value}'"
+            )
 
 
 class PredictorHuggingface(PredictorUNet):
@@ -102,6 +107,7 @@ class PredictorHuggingface(PredictorUNet):
             img_width=img_width,
             img_height=img_height,
             T=T,
+            model_size=ModelSize.MICRO,  # Created UNet will be discarded
             target=PredictionTarget.Noise,
             suffix=f"_{model_id.replace('/', '_')}{suffix_str}",
         )

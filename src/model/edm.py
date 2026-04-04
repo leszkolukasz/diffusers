@@ -1,13 +1,13 @@
 import torch
-from diffusers.models import UNet2DModel
 
-from src.model import PredictionTarget, Predictor
+from src.model import PredictionTarget, PredictorUNet
 from src.model.nvidia.edm2 import UNet as UNetEDM2
+from src.model.presets import EDM2_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
-from src.timestep import Timestep, TimestepConfig
+from src.timestep import Timestep
 
 
-class PredictorEDM(Predictor):
+class PredictorEDM(PredictorUNet):
     def __init__(
         self,
         *,
@@ -15,36 +15,24 @@ class PredictorEDM(Predictor):
         img_width: int,
         img_height: int,
         T: int,
+        model_size: ModelSize = ModelSize.SMALL,
         suffix: str | None = None,
-        **_kwargs,
+        **kwargs,
     ):
-        super().__init__()
-        assert img_width == img_height, "Only square images are supported"
+        kwargs.pop("target", None)  # Needed for load_from_file to work
 
-        self.n_channels = n_channels
-        self.img_width = img_width
-        self.img_height = img_height
-        self.target = PredictionTarget.x0
-
-        self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}_predictor_edm{suffix if suffix is not None else ''}.pth"
-        self.unet = UNet2DModel(  # TODO: Add EDM2 network
-            sample_size=img_width,
-            in_channels=n_channels,
-            out_channels=n_channels,
-            layers_per_block=2,
-            block_out_channels=(32, 64, 128),
-            down_block_types=(
-                "DownBlock2D",
-                "DownBlock2D",
-                "AttnDownBlock2D",
-            ),
-            up_block_types=(
-                "AttnUpBlock2D",
-                "UpBlock2D",
-                "UpBlock2D",
-            ),
+        super().__init__(
+            n_channels=n_channels,
+            img_width=img_width,
+            img_height=img_height,
+            T=T,
+            model_size=model_size,
+            suffix=suffix,
+            target=PredictionTarget.x0,
+            **kwargs,
         )
+
+        self.file_name = f"{self.target.value}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
     # Input: (batch_size, C, H, W)
     def forward(
@@ -82,28 +70,27 @@ class PredictorEDM2(PredictorEDM):
         img_width: int,
         img_height: int,
         T: int,
+        model_size: ModelSize = ModelSize.SMALL,
         suffix: str | None = None,
-        **_kwargs,
+        **kwargs,
     ):
         super().__init__(
             n_channels=n_channels,
             img_width=img_width,
             img_height=img_height,
             T=T,
+            model_size=model_size,
             suffix=suffix,
-            **_kwargs,
+            **kwargs,
         )
 
-        self.file_name = f"{self.target.value}_predictor_edm2{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
         self.unet = UNetEDM2(
             img_resolution=img_width,
             img_channels=n_channels,
             label_dim=0,
-            model_channels=32,
-            channel_mult=[1, 2, 4],
-            num_blocks=2,
-            attn_resolutions=[16, 8],
+            **EDM2_PRESETS[model_size],
         )
 
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:

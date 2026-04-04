@@ -15,6 +15,7 @@ from src.config import (
     EquationType,
     EtaType,
     ModelType,
+    SamplingScheduleType,
     ScheduleType,
     SolverType,
     get_solver_T,
@@ -22,7 +23,7 @@ from src.config import (
 from src.generator import Generator
 from src.model import Predictor, PredictorHuggingface
 from src.schedule import ScheduleGroup
-from src.schedule.sampling import EDMSamplingSchedule
+from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
 
 app = typer.Typer(help="Generate images")
 
@@ -54,6 +55,10 @@ def generate(
         "--equation",
         help="Reverse diffusion equation",
     ),
+    sampling_schedule: SamplingScheduleType = typer.Option(
+        SamplingScheduleType.edm, "--sampling-schedule", help="Time sampling"
+    ),
+    n_steps: int = typer.Option(100, "--n-steps", help="Number of solver steps"),
     n_samples: int = typer.Option(
         30, "--n-samples", help="Number of images to generate"
     ),
@@ -128,13 +133,19 @@ def generate(
     logger.info(f"Generating {n_samples} samples...")
 
     generator_kwargs = {}
-    if schedule == ScheduleType.edm:
-        generator_kwargs["timesteps"] = (
-            EDMSamplingSchedule(T=predictor_T).get_timesteps(n_steps=100).cuda()
-        )
-        generator_kwargs["variance_exploding"] = True
-    else:
-        generator_kwargs["skip_last_step"] = True
+    match sampling_schedule:
+        case SamplingScheduleType.edm:
+            generator_kwargs["timesteps"] = (
+                EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
+            )
+            generator_kwargs["variance_exploding"] = True
+        case SamplingScheduleType.linear:
+            generator_kwargs["timesteps"] = (
+                LinearSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
+            )
+        case SamplingScheduleType.discrete:
+            logger.info("n_steps is ignored. Using all steps supported by model.")
+            generator_kwargs["skip_last_step"] = True
 
     with torch.no_grad():
         generated = generator.generate(

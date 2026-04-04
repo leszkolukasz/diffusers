@@ -15,6 +15,7 @@ from src.config import (
     ScheduleType,
     get_timesampler,
 )
+from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.trainer import Trainer, TrainingConfig
 
@@ -30,6 +31,9 @@ def train(
         None,
         "--model-id",
         help="HuggingFace repository ID (required if schedule=ddpm)",
+    ),
+    model_size: ModelSize = typer.Option(
+        ModelSize.SMALL, "--model-size", help="Model size (number of parameters)"
     ),
     dataset: DatasetType = typer.Option(
         DatasetType.flowers, "--dataset", help="Target dataset for training"
@@ -54,6 +58,7 @@ def train(
 
     logger.info("Starting the training")
     logger.info(f"Model architecture: {model_name.value}")
+    logger.info(f"Model size: {model_size.value}")
     logger.info(f"Dataset: {dataset.value}")
     logger.info(f"Signal/Noise schedule: {schedule.value}")
     logger.info(f"Stochasticity (eta): {eta.value}")
@@ -99,10 +104,11 @@ def train(
 
     model = model_class(
         T=predictor_t,
-        suffix=f"_{dataset.value}",
+        model_size=model_size,
         n_channels=dataset_config.channels,
         img_width=dataset_config.img_width,
         img_height=dataset_config.img_height,
+        suffix=f"_{dataset.value}",
     ).cuda()
 
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
