@@ -47,6 +47,7 @@ class DatasetType(str, Enum):
     celeb = "celeb"
     flowers = "flowers"
     stl10 = "stl10"
+    food101 = "food101"
 
 
 class ModelType(str, Enum):
@@ -60,8 +61,7 @@ class ModelType(str, Enum):
 class DatasetConfig:
     dataset_class: Type[VisionDataset]
     channels: int
-    img_width: int
-    img_height: int
+    img_size: int
     split: str | None = None
 
 

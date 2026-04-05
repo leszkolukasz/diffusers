@@ -8,6 +8,13 @@ class ModelSize(str, Enum):
     MEDIUM = "medium"
     LARGE = "large"
 
+    @classmethod
+    def from_value(cls, value: str) -> "ModelSize":
+        for member in cls:
+            if member.value == value:
+                return member
+        raise ValueError(f"Invalid ModelSize value: {value}")
+
 
 UNET_PRESETS: dict[ModelSize, dict[str, Any]] = {
     ModelSize.MICRO: {  # ~ 1M parameters

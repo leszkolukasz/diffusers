@@ -21,6 +21,12 @@ class PredictorEDM(PredictorUNet):
     ):
         kwargs.pop("target", None)  # Needed for load_from_file to work
 
+        model_size = (
+            ModelSize.from_value(model_size)
+            if isinstance(model_size, str)
+            else model_size
+        )
+
         super().__init__(
             n_channels=n_channels,
             img_width=img_width,

@@ -19,7 +19,7 @@ from src.config.presets import (
 )
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
-from src.trainer import Trainer, TrainingConfig
+from src.train import Trainer, TrainingConfig
 
 app = typer.Typer(help="Train model")
 
@@ -54,6 +54,9 @@ def train(
         1000, "--predictor-t", help="Max time step predictor is trained on"
     ),
     num_epochs: int = typer.Option(1000, "--num-epochs", help="Number of epochs"),
+    checkpoint_interval: int = typer.Option(
+        100, "--checkpoint-interval", help="save a checkpoint every N steps"
+    ),
 ):
     dataset_config = DATASET_CONFIGS[dataset]
     model_class = MODEL_CONFIGS[model_name]
@@ -111,8 +114,8 @@ def train(
         T=predictor_t,
         model_size=model_size,
         n_channels=dataset_config.channels,
-        img_width=dataset_config.img_width,
-        img_height=dataset_config.img_height,
+        img_width=dataset_config.img_size,
+        img_height=dataset_config.img_size,
         suffix=f"_{dataset.value}",
     ).cuda()
 
@@ -123,7 +126,11 @@ def train(
     trainer = Trainer(
         model=model,
         schedules=schedules,
-        config=TrainingConfig(time_sampler=timesampler_config, epochs=num_epochs),
+        config=TrainingConfig(
+            time_sampler=timesampler_config,
+            epochs=num_epochs,
+            checkpoint_interval_steps=checkpoint_interval,
+        ),
     )
     trainer.load_checkpoint()
 

@@ -28,7 +28,7 @@ class PredictorUNet(Predictor):
         img_width: int,
         img_height: int,
         T: int,
-        model_size: ModelSize = ModelSize.SMALL,
+        model_size: ModelSize | str = ModelSize.SMALL,
         suffix: str | None = None,
         target: PredictionTarget | str = PredictionTarget.Noise,
         **_kwargs,
@@ -42,15 +42,19 @@ class PredictorUNet(Predictor):
         self.target = (
             PredictionTarget.from_value(target) if isinstance(target, str) else target
         )
-        self.model_size = model_size
+        self.model_size = (
+            ModelSize.from_value(model_size)
+            if isinstance(model_size, str)
+            else model_size
+        )
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}_predictor_unet_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
         self.unet = UNet2DModel(
             sample_size=img_width,
             in_channels=n_channels,
             out_channels=n_channels,
-            **UNET_PRESETS[model_size],
+            **UNET_PRESETS[self.model_size],
         )
 
     # Input: (batch_size, C, H, W)

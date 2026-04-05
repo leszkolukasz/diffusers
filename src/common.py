@@ -57,15 +57,13 @@ def get_dataloader(
     batch_size: int,
     dataset_config: DatasetConfig,
     shuffle=True,
-    num_workers=0,
+    num_workers=1,
 ):
     transform = transforms.Compose(
         [
-            transforms.RandomResizedCrop(
-                size=(dataset_config.img_height, dataset_config.img_width),
-                scale=(0.8, 1.0),
-                ratio=(0.75, 1.33),
-            ),
+            transforms.Resize(dataset_config.img_size),
+            transforms.CenterCrop(dataset_config.img_size),
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
@@ -95,7 +93,7 @@ def get_dataloader(
     sampler = None
     if is_distributed():
         sampler = DistributedSampler(
-            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=False
+            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=True
         )
 
     loader = DataLoader(

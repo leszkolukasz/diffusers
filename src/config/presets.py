@@ -40,7 +40,7 @@ from src.solver import (
     HeunODESolver,
     Solver,
 )
-from src.trainer import TimeSampler
+from src.train import TimeSampler
 
 SOLVER_CONFIGS: dict[SolverType, Type[Solver]] = {
     SolverType.discrete: DiscreteSolver,
@@ -82,12 +82,13 @@ EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
 
 # Image sizes should typically be powers of 2 or UNet may fail for bigger models.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
-    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 28, 28),
-    DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 28, 28),
-    DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32, 32),
-    DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, 256),
-    DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128, 128),
-    DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 64, 64, split="unlabeled"),
+    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 28),
+    DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 28),
+    DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
+    DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256),
+    DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
+    DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 64, split="unlabeled"),
+    DatasetType.food101: DatasetConfig(datasets.Food101, 3, 128, split="train"),
 }
 
 MODEL_CONFIGS: dict[ModelType, Type[Predictor]] = {

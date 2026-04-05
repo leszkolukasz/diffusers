@@ -39,6 +39,10 @@ def get_rank():
     return _RANK
 
 
+def get_world_size():
+    return _WORLD_SIZE
+
+
 @staticmethod
 def cleanup():
     if torch.distributed.is_initialized():

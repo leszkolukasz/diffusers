@@ -1,9 +1,10 @@
-import copy
 import os
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Iterable, Protocol
 
+import psutil
 import torch
 import wandb
 from loguru import logger
@@ -13,10 +14,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.diffusion import diffuse
-from src.distributed import get_rank, is_distributed
+from src.distributed import get_rank, get_world_size, is_distributed
 from src.model import PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
+from src.train import ExpMovingAverageWrapper, WarmupCosineLR
 
 
 class DatasetProtocol(Protocol):
@@ -29,34 +31,15 @@ class TimeSampler(StrEnum):
     EDM = "edm"
 
 
-class ExpMovingAverageWrapper:
-    ema_model: nn.Module
-    decay: float
-
-    def __init__(self, model: nn.Module, decay: float = 0.999):
-        self.decay = decay
-        self.ema_model = copy.deepcopy(model)
-        self.ema_model.eval()
-
-        for param in self.ema_model.parameters():
-            param.requires_grad_(False)
-
-    @torch.no_grad()
-    def update(self, model: nn.Module):
-        for ema_param, new_param in zip(
-            self.ema_model.parameters(), model.parameters()
-        ):
-            ema_param.data.mul_(self.decay).add_(new_param.data, alpha=1.0 - self.decay)
-
-
 @dataclass
 class TrainingConfig:
     epochs: int = 1000
     lr: float = 1e-4
     checkpoint_dir: str = "models/"
-    checkpoint_interval_steps: int = 1000
+    checkpoint_interval_steps: int = 100
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
     use_ema: bool = True
+    ema_update_every_n_steps: int = 10
 
 
 class Trainer:
@@ -127,10 +110,9 @@ class Trainer:
         solver_T = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
-        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        lr_scheduler = WarmupCosineLR(
             self.optimizer,
-            T_max=total_training_steps,
-            eta_min=1e-6,
+            total_steps=total_training_steps,
             last_epoch=self.total_steps_executed - 1,
         )
 
@@ -153,10 +135,13 @@ class Trainer:
                 disable=get_rank() != 0,
             )
 
+            end_time = time.time()
             for batch_idx, (X, _) in enumerate(pbar):
+                data_time = time.time() - end_time
+
                 self.optimizer.zero_grad()
 
-                X = X.to(device)
+                X = X.to(device, non_blocking=True)
 
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:
@@ -192,10 +177,24 @@ class Trainer:
                 self.optimizer.step()
                 lr_scheduler.step()
 
-                if ema_wrapper is not None:
+                compute_time = time.time() - end_time - data_time
+
+                if (
+                    ema_wrapper is not None
+                    and self.total_steps_executed % self.config.ema_update_every_n_steps
+                    == 0
+                ):
                     ema_wrapper.update(self.raw_model)
 
-                total_loss += loss.item()
+                with torch.no_grad():
+                    loss_to_log = loss.detach().clone()
+                    if is_distributed():
+                        torch.distributed.all_reduce(
+                            loss_to_log, op=torch.distributed.ReduceOp.SUM
+                        )
+                        loss_to_log /= get_world_size()
+
+                total_loss += loss_to_log.item()
                 avg_loss = total_loss / (batch_idx + 1)
                 pbar.set_postfix({"loss": avg_loss})
 
@@ -206,6 +205,8 @@ class Trainer:
                         lr=self.optimizer.param_groups[0]["lr"],
                         epoch=epoch,
                         global_step=self.total_steps_executed,
+                        data_time=data_time,
+                        compute_time=compute_time,
                     )
 
                 if (
@@ -220,6 +221,7 @@ class Trainer:
                     )
 
                 self.total_steps_executed += 1
+                end_time = time.time()
 
         if get_rank() == 0:
             self.save_checkpoint(
@@ -233,6 +235,8 @@ class Trainer:
         lr: float,
         epoch: int,
         global_step: int,
+        data_time: float,
+        compute_time: float,
     ):
         device = torch.cuda.current_device()
 
@@ -241,17 +245,24 @@ class Trainer:
         vram_reserved_bytes = torch.cuda.memory_reserved(device)
         gb_divider = 1024**3
 
+        sys_mem = psutil.virtual_memory()
+
         wandb.log(
             {
                 "train/loss_step": loss,
                 "train/loss_avg": avg_loss,
                 "train/learning_rate": lr,
                 "train/epoch": epoch,
-                "train/vram_allocated_gb": vram_allocated_bytes / gb_divider,
-                "train/vram_reserved_gb": vram_reserved_bytes / gb_divider,
-                "train/vram_total_gb": vram_total_bytes / gb_divider,
-                "train/vram_utilization_%": (vram_allocated_bytes / vram_total_bytes)
+                "system/vram_allocated_gb": vram_allocated_bytes / gb_divider,
+                "system/vram_reserved_gb": vram_reserved_bytes / gb_divider,
+                "system/vram_total_gb": vram_total_bytes / gb_divider,
+                "system/vram_utilization_%": (vram_allocated_bytes / vram_total_bytes)
                 * 100,
+                "system/ram_used_gb": sys_mem.used / gb_divider,
+                "system/ram_total_gb": sys_mem.total / gb_divider,
+                "system/ram_utilization_%": sys_mem.percent,
+                "perf/data_time_sec": data_time,
+                "perf/compute_time_sec": compute_time,
                 "global_step": self.total_steps_executed,
             },
             step=self.total_steps_executed,
