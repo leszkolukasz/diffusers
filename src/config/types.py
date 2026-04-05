@@ -63,6 +63,7 @@ class DatasetConfig:
     channels: int
     img_size: int
     split: str | None = None
+    path: str | None = None
 
 
 @dataclass

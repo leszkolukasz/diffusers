@@ -3,7 +3,7 @@ from typing import Any, Type, cast
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
-from torchvision import transforms
+from torchvision import transforms, datasets
 
 from src.config import DatasetConfig
 from src.distributed import _RANK, _WORLD_SIZE, get_rank, is_distributed
@@ -80,12 +80,18 @@ def get_dataloader(
     if is_distributed():
         should_download = get_rank() == 0
 
-    dataset = dataset_config.dataset_class(
-        root="./data",
-        download=should_download,  # ty: ignore
-        transform=transform,
-        **dataset_kwargs,
-    )
+    if dataset_config.path is None:
+        dataset = dataset_config.dataset_class(
+            root="./data",
+            download=should_download,  # ty: ignore
+            transform=transform,
+            **dataset_kwargs,
+        )
+    else:
+        dataset = datasets.ImageFolder(
+            root=dataset_config.path,
+            transform=transform,
+        )
 
     if is_distributed() and get_rank() == 0:
         torch.distributed.barrier()
