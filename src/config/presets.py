@@ -82,8 +82,8 @@ EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
 
 # Image sizes should typically be powers of 2 or UNet may fail for bigger models.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
-    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 28),
-    DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 28),
+    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
+    DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
     DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256),
     DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
