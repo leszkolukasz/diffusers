@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import transforms, datasets
 
 from src.config import DatasetConfig
-from src.distributed import _RANK, _WORLD_SIZE, get_rank, is_distributed
+from src.distributed import get_rank, is_distributed, get_world_size
 
 
 def get_device():
@@ -99,7 +99,7 @@ def get_dataloader(
     sampler = None
     if is_distributed():
         sampler = DistributedSampler(
-            dataset, num_replicas=_WORLD_SIZE, rank=_RANK, shuffle=True
+            dataset, num_replicas=get_world_size(), rank=get_rank(), shuffle=True
         )
 
     loader = DataLoader(
