@@ -57,6 +57,11 @@ def train(
     checkpoint_interval: int = typer.Option(
         100, "--checkpoint-interval", help="save a checkpoint every N steps"
     ),
+    use_amp: bool = typer.Option(
+        True,
+        "--use-amp/--no-use-amp",
+        help="Whether to use automatic mixed precision training",
+    ),
 ):
     dataset_config = DATASET_CONFIGS[dataset]
     model_class = MODEL_CONFIGS[model_name]
@@ -130,6 +135,7 @@ def train(
             time_sampler=timesampler_config,
             epochs=n_epochs,
             checkpoint_interval_steps=checkpoint_interval,
+            use_amp=use_amp,
         ),
     )
     trainer.load_checkpoint()
