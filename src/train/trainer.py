@@ -66,9 +66,13 @@ class Trainer:
         self.optimizer = optim.AdamW(self.raw_model.parameters(), lr=self.config.lr)
         self.criterion = nn.MSELoss(reduction="none")
 
-        self.amp_dtype = (
-            torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-        )
+        # self.amp_dtype = (
+        #     torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        # )
+
+        # For some reason the code above is lying as V100 does not support bf16
+        # and it slows down training significantly.
+        self.amp_dtype = torch.float16
 
         needs_scaler = self.config.use_amp and self.amp_dtype == torch.float16
         self.scaler = GradScaler(device="cuda", enabled=needs_scaler)
