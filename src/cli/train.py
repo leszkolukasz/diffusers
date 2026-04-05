@@ -62,6 +62,9 @@ def train(
         "--use-amp/--no-use-amp",
         help="Whether to use automatic mixed precision training",
     ),
+    n_workers: int = typer.Option(
+        1, "--n-workers", help="Number of dataloader workers"
+    ),
 ):
     dataset_config = DATASET_CONFIGS[dataset]
     model_class = MODEL_CONFIGS[model_name]
@@ -143,6 +146,7 @@ def train(
     dataloader = get_dataloader(
         batch_size=batch_size,
         dataset_config=dataset_config,
+        num_workers=n_workers,
     )
 
     trainer.train(dataloader)
