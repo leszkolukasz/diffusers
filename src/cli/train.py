@@ -158,6 +158,8 @@ def train(
 
     model.try_load()
 
+    is_edm2 = model_name == ModelType.edm2
+
     trainer = Trainer(
         model=model,
         vae=vae,
@@ -167,6 +169,7 @@ def train(
             epochs=n_epochs,
             checkpoint_interval_steps=checkpoint_interval,
             use_amp=use_amp,
+            lr=1e-2 if is_edm2 else 1e-4,
         ),
     )
     trainer.load_checkpoint()

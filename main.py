@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import typer
 from loguru import logger
 
@@ -13,6 +14,13 @@ app.add_typer(generate.app, name="generate")
 
 
 def setup_env():
+    SEED = 42
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     if distributed.is_distributed():
         distributed.setup()
 

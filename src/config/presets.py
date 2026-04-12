@@ -82,7 +82,7 @@ EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
 
 # Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
-    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
+    DatasetType.mnist: DatasetConfig(datasets.MNIST, 3, 128),
     DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
     DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 64, path="data/celebA"),
