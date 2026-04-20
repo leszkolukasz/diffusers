@@ -4,13 +4,16 @@ from typing import Generator
 
 import numpy as np
 import torch
+from loguru import logger
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.common import get_device
+from src.config import EquationType
 from src.diffusion import diffuse, diffuse_from
+from src.model import VAE, PredictionTarget, Predictor
+from src.schedule import ScheduleGroup
 from src.schedule.sampling import EPSILON, SamplingSchedule
-from src.solver import Solver
 from src.timestep import Timestep, TimestepConfig
 
 
@@ -21,53 +24,70 @@ class AYSConfig:
     device: torch.device = get_device()
     n_candidates: int = 11
     n_monte_carlo_iter: int = 1000
-    save_interval_iter: int = 1
+    save_interval_iter: int = 10
+    importance_sampling: bool = True
+    inverse_transform_sampling_grid_size: int = int(1e5)
     save_file: str = "generated/ays_timesteps.pt"
 
 
 class AYSSamplingSchedule(SamplingSchedule):
-    denoiser: Solver  # TODO: We only need model and schedules. Change it and then remove ciircular import problem.
+    model: Predictor
+    schedules: ScheduleGroup
     dataloader: DataLoader
     timestep_config: TimestepConfig
+    equation_type: EquationType
+    vae: VAE | None = None
 
     def __init__(
         self,
         *,
         max_t: float = 0.95,
-        denoiser: Solver,
+        model: Predictor,
+        schedules: ScheduleGroup,
         dataloader: DataLoader,
+        solver_T: float,
+        equation_type: EquationType,
+        vae: VAE | None = None,
         config: AYSConfig = AYSConfig(),
     ):
-        super().__init__(max_t=max_t)
-        self.denoiser = denoiser
+        super().__init__(max_t=max_t, T=solver_T)
+        self.model = model
+        self.schedules = schedules
+        self.equation_type = equation_type
         self.dataloader = dataloader
+        self.vae = vae
         self.config = config
 
-        self.timestep_config = TimestepConfig(kind="continuous", T=1.0)
+        self.timestep_config = TimestepConfig(kind="continuous", T=solver_T)
 
     def get_timesteps(
         self, n_steps: int = 10, *, initial_t: Timestep | None = None, **kwargs
     ) -> Timestep:
         if initial_t is not None:
-            t = initial_t.as_continuous(1.0).steps
+            t = initial_t.adapt(self.timestep_config).steps
         else:
-            t = torch.linspace(0.0, self.max_t, n_steps + 1)
+            logger.warning(
+                f"No initial_t provided. Remember to set correct max_t: {self.max_t}"
+            )
+            t = torch.linspace(0.0, self.max_t, 11)
 
         t = self._get_10_timesteps(t)
 
         if n_steps <= 10:
-            return self.interpolate_timesteps(t, n_steps)
+            return self._interpolate_timesteps(t, n_steps)
 
         t = self.get_20_timesteps(t)
 
         if n_steps <= 20:
-            return self.interpolate_timesteps(t, n_steps)
+            return self._interpolate_timesteps(t, n_steps)
 
         t = self.get_40_timesteps(t)
 
-        return self.interpolate_timesteps(t, n_steps)
+        return self._interpolate_timesteps(t, n_steps)
 
     def _get_10_timesteps(self, initial_steps: torch.Tensor) -> Timestep:
+        assert len(initial_steps) == 11
+
         steps = self._optimize(
             initial_steps,
             max_iter=self.config.max_iter,
@@ -77,9 +97,9 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         return Timestep(self.timestep_config, steps)
 
-    def get_20_timesteps(self, steps_10: Timestep) -> Timestep:  # ty: ignore
+    def get_20_timesteps(self, steps_10: Timestep) -> Timestep:
         assert len(steps_10) == 11
-        steps = steps_10.as_continuous(1.0).steps
+        steps = steps_10.adapt(self.timestep_config).steps
         steps = self._subdivide(steps)
 
         steps = self._optimize(
@@ -92,9 +112,9 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         return Timestep(self.timestep_config, steps)
 
-    def get_40_timesteps(self, steps_20: Timestep) -> Timestep:  # ty: ignore
+    def get_40_timesteps(self, steps_20: Timestep) -> Timestep:
         assert len(steps_20) == 21
-        steps = steps_20.as_continuous(1.0).steps
+        steps = steps_20.adapt(self.timestep_config).steps
         steps = self._subdivide(steps)
 
         steps = self._optimize(
@@ -171,16 +191,16 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         return steps
 
-    def interpolate_timesteps(self, timesteps: Timestep, n_steps: int) -> Timestep:
-        steps = timesteps.as_continuous(1.0).steps
+    def _interpolate_timesteps(self, timesteps: Timestep, n_steps: int) -> Timestep:
+        steps = timesteps.adapt(self.timestep_config).steps
 
         if len(steps) == n_steps + 1:
             return Timestep(self.timestep_config, steps)
 
-        xs = torch.linspace(0, 1, len(steps)).cpu().detach().numpy()
+        xs = torch.linspace(0, self.T, len(steps)).cpu().detach().numpy()
         ys = torch.log(steps).cpu().detach().numpy()
 
-        new_xs = torch.linspace(0, 1, n_steps + 1).cpu().detach().numpy()
+        new_xs = torch.linspace(0, self.T, n_steps + 1).cpu().detach().numpy()
         new_ys = np.interp(new_xs, xs, ys)
         new_steps = torch.exp(torch.tensor(new_ys, device=steps.device))
 
@@ -222,9 +242,12 @@ class AYSSamplingSchedule(SamplingSchedule):
         sample_count = 0
 
         for X in self._get_data_samples():
-            # TODO: Add importance sampling
             t_samples = (
-                torch.rand(X.size(0), device=X.device) * (t_end - t_start) + t_start
+                self._importance_sample(X.size(0), t_start, t_end)
+                if self.config.importance_sampling
+                else (
+                    torch.rand(X.size(0), device=X.device) * (t_end - t_start) + t_start
+                )
             )
             timestep_samples = Timestep(self.timestep_config, t_samples)
             timestep_end = Timestep(
@@ -235,7 +258,7 @@ class AYSSamplingSchedule(SamplingSchedule):
             X_t, _ = diffuse(
                 X,
                 timestep_samples,
-                self.denoiser.schedules,
+                self.schedules,
             )
 
             X_t_end = diffuse_from(
@@ -243,40 +266,97 @@ class AYSSamplingSchedule(SamplingSchedule):
                 X_t,
                 timestep_samples,
                 timestep_end,
-                self.denoiser.schedules,
+                self.schedules,
             )
 
-            noise_t = self.denoiser.model(X_t, timestep=timestep_samples)
-            noise_t_end = self.denoiser.model(
+            pred_t = self.model(
+                X_t, timestep=timestep_samples, schedules=self.schedules
+            )
+            pred_t_end = self.model(
                 X_t_end,
                 timestep=timestep_end,
+                schedules=self.schedules,
             )
 
-            noise_diff_norm = (noise_t_end - noise_t).view(X.size(0), -1).norm(
-                dim=1
-            ) ** 2
+            pred_t_timesteps = Timestep(self.timestep_config, pred_t)
 
-            likelihood = 1 / (t_end - t_start)
-            integral = (
-                -0.5
-                * (
-                    self.denoiser.schedules.lambda_.derivative(timestep_samples)
-                    * noise_diff_norm
+            pred_diff_norm = (pred_t_end - pred_t).view(X.size(0), -1).norm(dim=1) ** 2
+
+            factor = (
+                (t_end - t_start)
+                if not self.config.importance_sampling
+                else self.schedules.edm_sigma(pred_t_timesteps).view(-1, 1, 1, 1) ** 3
+                / (1 / (t_start**2 + 0.5**2) - 1 / (t_end**2 + 0.5**2))
+            )
+
+            if self.equation_type in [
+                EquationType.song_sde,
+                EquationType.probability_flow,
+            ]:
+                assert self.model.target == PredictionTarget.x0
+
+                integral = (
+                    self.schedules.s(pred_t_timesteps).view(-1, 1, 1, 1)
+                    * self.schedules.edm_sigma.derivative(pred_t_timesteps).view(
+                        -1, 1, 1, 1
+                    )
+                    * (
+                        1
+                        / self.schedules.edm_sigma(pred_t_timesteps).view(-1, 1, 1, 1)
+                        ** 3
+                    )
+                    * pred_diff_norm
+                    * factor
                 )
-                / likelihood
-            )
+            elif self.equation_type == EquationType.generalized_differential:
+                assert self.model.target == PredictionTarget.Noise
+
+                integral = (
+                    -0.5
+                    * (
+                        self.schedules.lambda_.derivative(pred_t_timesteps)
+                        * pred_diff_norm
+                    )
+                    * factor
+                )
+            else:
+                raise ValueError(f"Unsupported equation type: {self.equation_type}")
 
             klub_sum += integral.sum().item()
             sample_count += X.size(0)
 
         return klub_sum / sample_count
 
+    # Inverse Transform Sampling
+    def _importance_sample(self, n: int, t_start: float, t_end: float) -> torch.Tensor:
+        c = 0.5
+
+        t_grid = torch.linspace(
+            t_start,
+            t_end,
+            self.config.inverse_transform_sampling_grid_size,
+            device=self.config.device,
+        )
+
+        pi_t = (1.0 / t_grid**3) * (1.0 / (t_grid**2 + c**2) - 1.0 / (t_end**2 + c**2))
+        pi_t = torch.clamp(pi_t, min=1e-10)
+
+        cdf = torch.cumsum(pi_t, dim=0)
+        cdf = cdf / cdf[-1]
+
+        u = torch.rand(n, device=self.config.device)
+
+        indices = torch.searchsorted(cdf, u)
+        indices = torch.clamp(indices, 0, len(t_grid) - 1)
+
+        return t_grid[indices]
+
     def _get_data_samples(self) -> Generator[torch.Tensor, None, None]:
         count = 0
         while count < self.config.n_monte_carlo_iter:
             for batch_idx, (X, _) in enumerate(self.dataloader):
                 X = X.to(self.config.device)
-                yield X
+                yield self.vae.encode(X.half()).float() if self.vae is not None else X
                 count += X.size(0)
                 if count >= self.config.n_monte_carlo_iter:
                     break

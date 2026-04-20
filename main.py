@@ -4,13 +4,13 @@ import typer
 from loguru import logger
 
 from src import distributed
-from src.cli import generate, train
+from src.cli import generate, train, ays
 
 app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(train.app, name="train")
 app.add_typer(generate.app, name="generate")
-# app.add_typer(ays.app, name="ays")
+app.add_typer(ays.app, name="ays")
 
 
 def setup_env():
