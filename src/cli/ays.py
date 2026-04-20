@@ -20,6 +20,7 @@ from src.config.presets import (
 )
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
+from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
 from src.schedule.sampling.ays import (
     AYSConfig,
     AYSSamplingSchedule,
@@ -31,9 +32,7 @@ app = typer.Typer(help="Find steps with AYS")
 @app.callback(invoke_without_command=True)
 def ays(
     model_name: ModelType = typer.Option(
-        ModelType.edm,
-        "--model",
-        help="Network architecture",
+        ModelType.edm, "--model", help="Network architecture"
     ),
     model_path: Optional[str] = typer.Option(
         None, "--model-path", help="Path to the local pre-trained weights"
@@ -51,18 +50,37 @@ def ays(
     ),
     eta: EtaType = typer.Option(EtaType.ddpm, "--eta", help="Stochasticity"),
     equation_name: EquationType = typer.Option(
-        EquationType.probability_flow,
-        "--equation",
-        help="Reverse diffusion equation",
+        EquationType.probability_flow, "--equation", help="Reverse diffusion equation"
     ),
     batch_size: int = typer.Option(128, "--batch-size", help="Batch size"),
     initial_sampling_schedule: SamplingScheduleType = typer.Option(
-        SamplingScheduleType.edm, "--sampling-schedule", help="Time sampling"
+        SamplingScheduleType.edm,
+        "--initial-schedule",
+        help="Initial time sampling",
+    ),
+    suffix: str = typer.Option("default", "--suffix", help="Suffix for checkpoint"),
+    max_iter: int = typer.Option(
+        300, "--max-iter", help="Max iterations for 10-step stage"
+    ),
+    max_finetune_iter: int = typer.Option(
+        10, "--max-finetune-iter", help="Max fine tune iterations for 20/40-step stage"
+    ),
+    n_candidates: int = typer.Option(
+        11, "--n-candidates", help="Number of timestep candidates"
+    ),
+    n_monte_carlo_iter: int = typer.Option(
+        1000, "--n-mc-iter", help="Number of Monte Carlo steps"
+    ),
+    save_interval_iter: int = typer.Option(
+        10, "--save-interval", help="Checkpoint frequency"
     ),
     importance_sampling: bool = typer.Option(
         True,
         "--importance-sampling/--no-importance-sampling",
         help="Use importance sampling for AYS",
+    ),
+    its_grid_size: int = typer.Option(
+        100000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -71,10 +89,9 @@ def ays(
         1, "--n-workers", help="Number of dataloader workers"
     ),
 ):
-    logger.info("Starting the generation")
+    logger.info("Starting the AYS Generation")
     logger.info(f"Model Architecture: {model_name.value}")
     logger.info(f"Signal/Noise Schedule: {schedule.value}")
-    logger.info(f"Stochasticity (eta): {eta.value}")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Initial Sampling Schedule: {initial_sampling_schedule.value}")
 
@@ -86,7 +103,6 @@ def ays(
                 "You must provide '--model-id' when using the huggingface model."
             )
             raise typer.Exit(code=1)
-
         logger.info(f"Loading HuggingFace model: {model_id}")
         model = PredictorHuggingface(model_id=model_id).cuda()
     else:
@@ -95,7 +111,6 @@ def ays(
                 "You must provide '--model-path' when using a local model type."
             )
             raise typer.Exit(code=1)
-
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
         model.load()
@@ -132,6 +147,27 @@ def ays(
         logger.info(f"Using VAE: {vae_model_id}")
         vae = VAE(model_id=vae_model_id, low_memory=vae_low_memory).cuda()
 
+    if initial_sampling_schedule == SamplingScheduleType.edm:
+        initial_t = EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
+    elif initial_sampling_schedule == SamplingScheduleType.linear:
+        initial_t = LinearSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
+    else:
+        raise ValueError(
+            f"Unsupported initial schedule: {initial_sampling_schedule.value}"
+        )
+
+    save_file_path = f"generated/ays_timesteps_{suffix}.pth"
+    ays_config = AYSConfig(
+        max_iter=max_iter,
+        max_finetune_iter=max_finetune_iter,
+        n_candidates=n_candidates,
+        n_monte_carlo_iter=n_monte_carlo_iter,
+        save_interval_iter=save_interval_iter,
+        importance_sampling=importance_sampling,
+        inverse_transform_sampling_grid_size=its_grid_size,
+        save_file=save_file_path,
+    )
+
     ays_schedule = AYSSamplingSchedule(
         model=model,
         schedules=schedules,
@@ -143,13 +179,11 @@ def ays(
             dataset_config=dataset_config,
             num_workers=n_workers,
         ),
-        config=AYSConfig(
-            importance_sampling=importance_sampling,
-        ),
+        config=ays_config,
     )
 
-    initial_t = None
+    logger.info("Starting AYS tuning")
 
-    logger.info(f"Starting AYS tuning with initial_t: {initial_t}")
     timesteps = ays_schedule.get_timesteps(n_steps=40, initial_t=initial_t)
-    logger.info(f"Final timesteps: {timesteps.steps}")
+
+    logger.info(f"Final AYS schedule: {timesteps.steps}")

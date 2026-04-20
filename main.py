@@ -4,7 +4,7 @@ import typer
 from loguru import logger
 
 from src import distributed
-from src.cli import generate, train, ays
+from src.cli import ays, generate, train
 
 app = typer.Typer(no_args_is_help=True)
 

@@ -230,6 +230,10 @@ class AYSSamplingSchedule(SamplingSchedule):
         return torch.tensor(new_steps, device=steps.device)
 
     def _get_candidates(self, s: float, t: float, t_next: float) -> torch.Tensor:
+        assert s + EPSILON < t_next - EPSILON, (
+            f"Invalid range: [{s}, {t_next}] +- {EPSILON}"
+        )
+
         candidates = torch.linspace(
             s + EPSILON, t_next - EPSILON, self.config.n_candidates - 1
         )
@@ -278,16 +282,16 @@ class AYSSamplingSchedule(SamplingSchedule):
                 schedules=self.schedules,
             )
 
-            pred_t_timesteps = Timestep(self.timestep_config, pred_t)
-
             pred_diff_norm = (pred_t_end - pred_t).view(X.size(0), -1).norm(dim=1) ** 2
 
             factor = (
                 (t_end - t_start)
                 if not self.config.importance_sampling
-                else self.schedules.edm_sigma(pred_t_timesteps).view(-1, 1, 1, 1) ** 3
+                else self.schedules.edm_sigma(timestep_samples) ** 3
                 / (1 / (t_start**2 + 0.5**2) - 1 / (t_end**2 + 0.5**2))
             )
+
+            assert torch.all(factor > 0)  # ty: ignore
 
             if self.equation_type in [
                 EquationType.song_sde,
@@ -296,15 +300,9 @@ class AYSSamplingSchedule(SamplingSchedule):
                 assert self.model.target == PredictionTarget.x0
 
                 integral = (
-                    self.schedules.s(pred_t_timesteps).view(-1, 1, 1, 1)
-                    * self.schedules.edm_sigma.derivative(pred_t_timesteps).view(
-                        -1, 1, 1, 1
-                    )
-                    * (
-                        1
-                        / self.schedules.edm_sigma(pred_t_timesteps).view(-1, 1, 1, 1)
-                        ** 3
-                    )
+                    self.schedules.s(timestep_samples)
+                    * self.schedules.edm_sigma.derivative(timestep_samples)
+                    * (1 / self.schedules.edm_sigma(timestep_samples) ** 3)
                     * pred_diff_norm
                     * factor
                 )
@@ -314,7 +312,7 @@ class AYSSamplingSchedule(SamplingSchedule):
                 integral = (
                     -0.5
                     * (
-                        self.schedules.lambda_.derivative(pred_t_timesteps)
+                        self.schedules.lambda_.derivative(timestep_samples)
                         * pred_diff_norm
                     )
                     * factor
@@ -339,6 +337,8 @@ class AYSSamplingSchedule(SamplingSchedule):
         )
 
         pi_t = (1.0 / t_grid**3) * (1.0 / (t_grid**2 + c**2) - 1.0 / (t_end**2 + c**2))
+        assert torch.all(pi_t >= 0)
+
         pi_t = torch.clamp(pi_t, min=1e-10)
 
         cdf = torch.cumsum(pi_t, dim=0)
