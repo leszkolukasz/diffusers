@@ -38,6 +38,7 @@ class EquationType(str, Enum):
     generalized_discrete = "generalized_discrete"
     generalized_differential = "generalized_differential"
     probability_flow = "probability_flow"
+    song_sde = "song_sde"
 
 
 class DatasetType(str, Enum):

@@ -17,6 +17,7 @@ from src.equation import (
     GeneralizedDifferential,
     GeneralizedDiscrete,
     ProbabilityFlow,
+    SongSDE,
 )
 from src.model import Predictor, PredictorEDM, PredictorEDM2, PredictorUNet
 from src.schedule import (
@@ -78,6 +79,7 @@ EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
     EquationType.generalized_discrete: GeneralizedDiscrete,
     EquationType.generalized_differential: GeneralizedDifferential,
     EquationType.probability_flow: ProbabilityFlow,
+    EquationType.song_sde: SongSDE,
 }
 
 # Image sizes should be divisible by 8.
@@ -115,6 +117,9 @@ def get_solver_T(
         return predictor_t
     if equation_name == EquationType.generalized_differential:
         return 1.0
-    if equation_name == EquationType.probability_flow:
+    if (
+        equation_name == EquationType.probability_flow
+        or equation_name == EquationType.song_sde
+    ):
         return float(predictor_t) if schedule_name == ScheduleType.edm else 1.0
     raise ValueError(f"Unknown equation config name: {equation_name}")
