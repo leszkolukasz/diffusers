@@ -266,7 +266,7 @@ def plot(
     plt.xlabel("Step Index")
     plt.ylabel("Timestep (t)")
 
-    plt.yscale("symlog", linthresh=1e-3)
+    # plt.yscale("symlog", linthresh=1e-3)
 
     plt.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.legend()

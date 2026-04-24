@@ -70,6 +70,11 @@ def train(
     vae_model_id: str = typer.Option(
         "madebyollin/taesd", "--vae-model-id", help="HF repo ID for the VAE"
     ),
+    use_bf16: bool = typer.Option(
+        False,
+        "--bf16/--no-bf16",
+        help="Whether to use bfloat16 precision",
+    ),
     n_workers: int = typer.Option(
         1, "--n-workers", help="Number of dataloader workers"
     ),
@@ -169,6 +174,7 @@ def train(
             epochs=n_epochs,
             checkpoint_interval_steps=checkpoint_interval,
             use_amp=use_amp,
+            use_bf16=use_bf16,
             lr=1e-2 if is_edm2 else 1e-4,
         ),
     )

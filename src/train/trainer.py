@@ -42,6 +42,7 @@ class TrainingConfig:
     use_ema: bool = True  # Exponential Moving Average
     ema_update_every_n_steps: int = 10
     use_amp: bool = True  # Automatic Mixed Precision
+    use_bf16: bool = False
 
 
 class Trainer:
@@ -86,7 +87,7 @@ class Trainer:
 
         # For some reason the code above is lying as V100 does not support bf16
         # and it slows down training significantly.
-        self.amp_dtype = torch.float16
+        self.amp_dtype = torch.bfloat16 if self.config.use_bf16 else torch.float16
 
         needs_scaler = self.config.use_amp and self.amp_dtype == torch.float16
         self.scaler = GradScaler(device="cuda", enabled=needs_scaler)
