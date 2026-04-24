@@ -26,6 +26,7 @@ class SamplingScheduleType(str, Enum):
     linear = "linear"
     edm = "edm"
     discrete = "discrete"
+    custom = "custom"
 
 
 class EtaType(str, Enum):

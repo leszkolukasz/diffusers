@@ -26,6 +26,8 @@ from src.generator import Generator
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
+from src.schedule.sampling import Timestep, TimestepConfig
+
 
 app = typer.Typer(help="Generate images")
 
@@ -59,6 +61,11 @@ def generate(
     ),
     sampling_schedule: SamplingScheduleType = typer.Option(
         SamplingScheduleType.edm, "--sampling-schedule", help="Time sampling"
+    ),
+    sampling_timesteps_path: Optional[str] = typer.Option(
+        None,
+        "--sampling-timesteps-path",
+        help="Path to custom sampling timesteps (AYS, ETS)",
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -143,20 +150,43 @@ def generate(
 
     logger.info(f"Generating {n_samples} samples...")
 
+    variance_exploding = (
+        schedules.sigma.exploding  # ty: ignore
+        if hasattr(schedules.sigma, "exploding")
+        else False
+    )
+
     generator_kwargs = {}
+    generator_kwargs["variance_exploding"] = variance_exploding
+
     match sampling_schedule:
         case SamplingScheduleType.edm:
             generator_kwargs["timesteps"] = (
                 EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
             )
-            generator_kwargs["variance_exploding"] = True
         case SamplingScheduleType.linear:
             generator_kwargs["timesteps"] = (
-                LinearSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
+                LinearSamplingSchedule(T=solver_T)  # , max_t = ...
+                .get_timesteps(n_steps=n_steps)
+                .cuda()
             )
+            logger.warning(f"Remember to set correct max_t: {solver_T}")
         case SamplingScheduleType.discrete:
             logger.info("n_steps is ignored. Using all steps supported by model.")
             generator_kwargs["skip_last_step"] = True
+        case SamplingScheduleType.custom:
+            if not sampling_timesteps_path:
+                logger.error(
+                    "You must provide '--sampling-timesteps-path' when using a custom sampling schedule."
+                )
+                raise typer.Exit(code=1)
+            custom_schedule = torch.load(sampling_timesteps_path)["steps"]
+            generator_kwargs["timesteps"] = Timestep(
+                TimestepConfig("continuous", T=solver_T), custom_schedule
+            ).cuda()
+        case _:
+            logger.error(f"Unsupported sampling schedule: {sampling_schedule.value}")
+            raise typer.Exit(code=1)
 
     with torch.no_grad():
         generated = generator.generate(
