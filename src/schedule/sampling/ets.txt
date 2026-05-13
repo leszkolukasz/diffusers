@@ -1,0 +1,16 @@
+Algorithm 2 Estimation of rescaled entropy, ∫ σ(τ) Ḣ[x₀ | x_τ] dτ
+
+1: procedure ESTIMATERESCALEDENTROPY(D_θ(x, σ), σ(t), s(t), {t_i}{i=0}^N, M)
+2: sample x₀^j ~ p₀ for j = 1, ..., M
+3: x₀ ← [x₀¹, ..., x₀^M]
+4: R{i:N} ← 0
+5: for i ∈ {0, ..., N − 1} do
+6: sample ν_j ~ N(0, I) for j = 1, ..., M
+7: ν ← [ν₁, ..., ν_M]
+8: x_{t_i} ← s(t_i)x₀ + s(t_i)σ(t_i)ν
+9: x̂₀ ← D_θ(x_{t_i}, σ(t_i))
+10: ε² ← 1/M ∑{j=1}^M ||x̂₀^j − x₀^j||²
+11: R{i+1} ← R_i + (σ̇(t_i) / σ²(t_i)) (t_{i+1} − t_i) ε² ▷ Riemann sum
+12: end for
+13: output R_{i:N}
+14: end procedure
