@@ -1,8 +1,9 @@
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Iterable, Protocol
+from typing import Protocol
 
 import psutil
 import torch
@@ -103,7 +104,7 @@ class Trainer:
             self.config.checkpoint_dir, f"trainer_{self.raw_model.file_name}"
         )
 
-    def save_checkpoint(self, model: nn.Module):
+    def save_checkpoint(self, model: nn.Module | Predictor):
         metadata = {
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,

@@ -1,4 +1,4 @@
-from typing import Callable, Type
+from collections.abc import Callable
 
 from torchvision import datasets
 
@@ -43,7 +43,7 @@ from src.solver import (
 )
 from src.train import TimeSampler
 
-SOLVER_CONFIGS: dict[SolverType, Type[Solver]] = {
+SOLVER_CONFIGS: dict[SolverType, type[Solver]] = {
     SolverType.discrete: DiscreteSolver,
     SolverType.euler: EulerODESolver,
     SolverType.heun: HeunODESolver,
@@ -75,7 +75,7 @@ ETA_CONFIGS: dict[EtaType, Callable[[AlphaSchedule, SigmaSchedule], EtaSchedule]
     EtaType.ddpm: lambda alpha, sigma: DDPMEtaSchedule(alpha, sigma),
 }
 
-EQUATION_CONFIGS: dict[EquationType, Type[Equation]] = {
+EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
     EquationType.generalized_discrete: GeneralizedDiscrete,
     EquationType.generalized_differential: GeneralizedDifferential,
     EquationType.probability_flow: ProbabilityFlow,
@@ -93,7 +93,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.food101: DatasetConfig(datasets.Food101, 3, 128, split="train"),
 }
 
-MODEL_CONFIGS: dict[ModelType, Type[Predictor]] = {
+MODEL_CONFIGS: dict[ModelType, type[Predictor]] = {
     ModelType.edm: PredictorEDM,
     ModelType.edm2: PredictorEDM2,
     ModelType.unet: PredictorUNet,

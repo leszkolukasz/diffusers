@@ -1,4 +1,4 @@
-from typing import Any, Type, cast
+from typing import Any, cast
 
 import torch
 from diffusers import DDPMScheduler, UNet2DModel
@@ -13,13 +13,13 @@ def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def assert_type[T](val: Any, typ: Type[T]) -> T:
+def assert_type[T](val: Any, typ: type[T]) -> T:
     if not isinstance(val, typ):
         raise TypeError(f"Expexted type {typ}, got {type(val)}")
     return val
 
 
-def load_unet_config(model_id: str, unet_class: Type = UNet2DModel, **kwargs) -> dict:
+def load_unet_config(model_id: str, unet_class: type = UNet2DModel, **kwargs) -> dict:
     try:
         return cast(dict, unet_class.load_config(model_id, **kwargs))  # type: ignore
     except Exception:
@@ -27,7 +27,7 @@ def load_unet_config(model_id: str, unet_class: Type = UNet2DModel, **kwargs) ->
 
 
 def load_unet_pretrained(
-    model_id: str, unet_class: Type = UNet2DModel, **kwargs
+    model_id: str, unet_class: type = UNet2DModel, **kwargs
 ) -> UNet2DModel:
     try:
         return unet_class.from_pretrained(model_id, **kwargs)  # type: ignore
@@ -36,7 +36,7 @@ def load_unet_pretrained(
 
 
 def load_scheduler_config(
-    model_id: str, scheduler_class: Type = DDPMScheduler, **kwargs
+    model_id: str, scheduler_class: type = DDPMScheduler, **kwargs
 ) -> dict:
     try:
         return cast(dict, scheduler_class.load_config(model_id, **kwargs))  # type: ignore

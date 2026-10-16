@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Type
+from typing import TYPE_CHECKING
 
 from torchvision.datasets import VisionDataset
 
@@ -61,7 +62,7 @@ class ModelType(str, Enum):
 
 @dataclass
 class DatasetConfig:
-    dataset_class: Type[VisionDataset]
+    dataset_class: type[VisionDataset]
     channels: int
     img_size: int
     split: str | None = None

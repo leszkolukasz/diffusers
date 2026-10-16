@@ -1,7 +1,7 @@
 import math
 import os
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 import numpy as np
 import torch

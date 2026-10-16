@@ -35,6 +35,7 @@ class WarmupCosineLR(SequentialLR):
             last_epoch=-1,
         )
 
+        # Ugly but works
         if last_epoch > 0:
             for _ in range(last_epoch):
                 self.step()

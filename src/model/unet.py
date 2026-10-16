@@ -1,4 +1,3 @@
-from typing import Type
 
 import torch
 from diffusers import DDPMScheduler
@@ -85,8 +84,8 @@ class PredictorHuggingface(PredictorUNet):
         *,
         model_id: str,
         dtype: torch.dtype = torch.float32,
-        unet_class: Type = UNet2DModel,
-        scheduler_class: Type = DDPMScheduler,
+        unet_class: type = UNet2DModel,
+        scheduler_class: type = DDPMScheduler,
         suffix: str | None = None,
         **_kwargs,
     ):

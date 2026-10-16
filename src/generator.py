@@ -22,7 +22,7 @@ class Generator:
         self,
         n_samples: int,
         *,
-        max_t: float | int | None = None,
+        max_t: float | int | None = None,  # noqa: PYI041
         n_steps: int | None = None,
         timesteps: Timestep | None = None,
         skip_last_step: bool = False,

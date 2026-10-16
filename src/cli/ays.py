@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import torch
@@ -37,10 +36,10 @@ def tune(
     model_name: ModelType = typer.Option(
         ModelType.edm, "--model", help="Network architecture"
     ),
-    model_path: Optional[str] = typer.Option(
+    model_path: str | None = typer.Option(
         None, "--model-path", help="Path to the local pre-trained weights"
     ),
-    model_id: Optional[str] = typer.Option(
+    model_id: str | None = typer.Option(
         None,
         "--model-id",
         help="HuggingFace repository ID (required if model=huggingface)",
@@ -61,7 +60,7 @@ def tune(
         "--initial-schedule",
         help="Initial time sampling",
     ),
-    checkpoint_path: Optional[str] = typer.Option(
+    checkpoint_path: str | None = typer.Option(
         None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
     ),
     suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),

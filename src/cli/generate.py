@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 import torch
 import torchvision
@@ -25,9 +24,12 @@ from src.config.presets import (
 from src.generator import Generator
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
-from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
-from src.schedule.sampling import Timestep, TimestepConfig
-
+from src.schedule.sampling import (
+    EDMSamplingSchedule,
+    LinearSamplingSchedule,
+    Timestep,
+    TimestepConfig,
+)
 
 app = typer.Typer(help="Generate images")
 
@@ -39,10 +41,10 @@ def generate(
         "--model",
         help="Network architecture",
     ),
-    model_path: Optional[str] = typer.Option(
+    model_path: str | None = typer.Option(
         None, "--model-path", help="Path to the local pre-trained weights"
     ),
-    model_id: Optional[str] = typer.Option(
+    model_id: str | None = typer.Option(
         None,
         "--model-id",
         help="HuggingFace repository ID (required if model=huggingface)",
@@ -62,7 +64,7 @@ def generate(
     sampling_schedule: SamplingScheduleType = typer.Option(
         SamplingScheduleType.edm, "--sampling-schedule", help="Time sampling"
     ),
-    sampling_timesteps_path: Optional[str] = typer.Option(
+    sampling_timesteps_path: str | None = typer.Option(
         None,
         "--sampling-timesteps-path",
         help="Path to custom sampling timesteps (AYS, ETS)",

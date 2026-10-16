@@ -13,7 +13,7 @@ class Solver(ABC):
     def __init__(
         self,
         equation: Equation,
-        T: int | float,
+        T: float,
     ):
         self.equation = equation
         self.T = T
