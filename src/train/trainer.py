@@ -1,12 +1,13 @@
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
 import psutil
 import torch
+import torch.distributed
 import wandb
 from loguru import logger
 from torch import nn, optim
@@ -24,7 +25,7 @@ from src.train import ExpMovingAverageWrapper, WarmupCosineLR
 
 
 class DatasetProtocol(Protocol):
-    def __iter__(self) -> Iterable[tuple[torch.Tensor, torch.Tensor]]: ...
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]: ...
 
 
 class TimeSampler(StrEnum):

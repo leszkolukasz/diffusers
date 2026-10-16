@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import torch
 import torchvision
@@ -153,12 +154,10 @@ def generate(
     logger.info(f"Generating {n_samples} samples...")
 
     variance_exploding = (
-        schedules.sigma.exploding  # ty: ignore
-        if hasattr(schedules.sigma, "exploding")
-        else False
+        schedules.sigma.exploding if hasattr(schedules.sigma, "exploding") else False
     )
 
-    generator_kwargs = {}
+    generator_kwargs: dict[str, Any] = {}
     generator_kwargs["variance_exploding"] = variance_exploding
 
     match sampling_schedule:

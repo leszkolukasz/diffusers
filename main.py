@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.distributed
 import typer
 from loguru import logger
 

@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import torch
+import torch.distributed
 from diffusers import DDPMScheduler, UNet2DModel
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets, transforms
@@ -66,15 +67,17 @@ def get_dataloader(
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Lambda(
-                lambda x: x.repeat(dataset_config.channels, 1, 1)
-                if x.shape[0] == 1 and dataset_config.channels > 1
-                else x
+                lambda x: (
+                    x.repeat(dataset_config.channels, 1, 1)
+                    if x.shape[0] == 1 and dataset_config.channels > 1
+                    else x
+                )
             ),
             transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     )
 
-    dataset_kwargs = {}
+    dataset_kwargs: dict[str, Any] = {}
     if dataset_config.split is not None:
         dataset_kwargs["split"] = dataset_config.split
 

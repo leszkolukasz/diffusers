@@ -44,5 +44,8 @@ exclude = ["**/nvidia"]
 [tool.ruff]
 exclude = ["**/nvidia"]
 
+[tool.ruff.lint]
+ignore = ["B008", "BLE001"]
+
 [tool.ty.rules]
 possibly-missing-attribute = "ignore"

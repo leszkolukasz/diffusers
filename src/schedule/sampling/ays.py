@@ -1,7 +1,7 @@
 import math
 import os
 from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
@@ -29,7 +29,7 @@ MIN_GAP = 1e-5
 class AYSConfig:
     max_iter: int = 300
     max_finetune_iter: int = 10
-    device: torch.device = get_device()
+    device: torch.device = field(default_factory=get_device)
     n_candidates: int = 11
     n_monte_carlo_iter: int = 1000
     save_interval_iter: int = 10
@@ -316,7 +316,7 @@ class AYSSamplingSchedule(SamplingSchedule):
                 / (1 / (t_start**2 + 0.5**2) - 1 / (t_end**2 + 0.5**2))
             )
 
-            assert torch.all(factor > 0)  # ty: ignore
+            assert torch.all(factor > 0)
 
             if self.equation_type in [
                 EquationType.song_sde,

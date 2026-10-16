@@ -32,6 +32,7 @@ class ConstantEtaSchedule(EtaSchedule):
 
 class DDPMEtaSchedule(EtaSchedule):
     def __call__(self, t: Timestep, s: Timestep | None = None) -> torch.Tensor:
+        assert s is not None
         adapted_t = t.adapt(self.timestep_config)
         adapted_s = s.adapt(self.timestep_config)
 

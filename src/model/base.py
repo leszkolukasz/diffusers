@@ -15,12 +15,16 @@ class PredictorMetadata(StrEnum):
     AlphaSchedule = "alpha_schedule"
     SigmaSchedule = "sigma_schedule"
     EtaSchedule = "eta_schedule"
-    VAE: str = "vae"
+    VAE = "vae"
 
 
 class PersistableModule(nn.Module):
     file_name: str
-    metadata: dict = {}
+    metadata: dict
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.metadata = {}
 
     def save(self, **extra_metadata):
         checkpoint = {
@@ -118,7 +122,7 @@ class Predictor(PersistableModule, ABC):
     target: PredictionTarget
 
     @abstractmethod
-    def forward(
+    def forward(  # ty: ignore[invalid-mutable-override]
         self,
         x: torch.Tensor,
         timestep: Timestep,
@@ -170,6 +174,6 @@ class Predictor(PersistableModule, ABC):
         instance = super().load_from_file(file_path)
 
         if not issubclass(instance.__class__, Predictor):
-            raise ValueError(f"Loaded model from {file_path} is not a Predictor")
+            raise TypeError(f"Loaded model from {file_path} is not a Predictor")
 
         return instance

@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 from diffusers import AutoencoderKL, AutoencoderTiny
 from loguru import logger
@@ -5,6 +7,8 @@ from torch import nn
 
 
 class VAE(nn.Module):
+    autoencoder: Any
+
     def __init__(
         self,
         model_id: str = "madebyollin/taesd",
