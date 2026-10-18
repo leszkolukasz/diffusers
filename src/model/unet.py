@@ -1,3 +1,5 @@
+from typing import override
+
 import torch
 from diffusers import DDPMScheduler
 from diffusers.models import UNet2DModel
@@ -26,6 +28,7 @@ class PredictorUNet(Predictor):
         img_width: int,
         img_height: int,
         T: int,
+        normalize_x: bool,
         model_size: ModelSize | str = ModelSize.SMALL,
         suffix: str | None = None,
         target: PredictionTarget | str = PredictionTarget.Noise,
@@ -37,6 +40,7 @@ class PredictorUNet(Predictor):
         self.n_channels = n_channels
         self.img_width = img_width
         self.img_height = img_height
+        self.normalize_x = normalize_x
         self.target = (
             PredictionTarget.from_value(target) if isinstance(target, str) else target
         )
@@ -47,7 +51,7 @@ class PredictorUNet(Predictor):
         )
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
         self.unet = UNet2DModel(
             sample_size=img_width,
             in_channels=n_channels,
@@ -56,7 +60,8 @@ class PredictorUNet(Predictor):
         )
 
     # Input: (batch_size, C, H, W)
-    def forward(
+    @override
+    def _forward(
         self,
         x: torch.Tensor,
         timestep: Timestep,
@@ -104,11 +109,14 @@ class PredictorHuggingface(PredictorUNet):
                 f"Loaded scheduler prediction_type '{prediction_type}' is not '{PredictionTarget.Noise.to_hf()}'."
             )
 
+        logger.warning("Normalization of x is disabled for Huggingface models.")
+
         super().__init__(
             n_channels=n_channels,
             img_width=img_width,
             img_height=img_height,
             T=T,
+            normalize_x=False,
             model_size=ModelSize.MICRO,  # Created UNet will be discarded
             target=PredictionTarget.Noise,
             suffix=f"_{model_id.replace('/', '_')}{suffix_str}",

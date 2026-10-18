@@ -1,3 +1,5 @@
+from typing import override
+
 import torch
 
 from src.model import PredictionTarget, PredictorUNet
@@ -15,6 +17,7 @@ class PredictorEDM(PredictorUNet):
         img_width: int,
         img_height: int,
         T: int,
+        normalize_x: bool,
         model_size: ModelSize = ModelSize.SMALL,
         suffix: str | None = None,
         **kwargs,
@@ -32,32 +35,35 @@ class PredictorEDM(PredictorUNet):
             img_width=img_width,
             img_height=img_height,
             T=T,
+            normalize_x=normalize_x,
             model_size=model_size,
             suffix=suffix,
             target=PredictionTarget.x0,
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
     # Input: (batch_size, C, H, W)
-    def forward(
+    # Assumes x is normalized by s(t) already, i.e. x = x_t / s(t)
+    @override
+    def _forward(
         self, x: torch.Tensor, timestep: Timestep, schedules: ScheduleGroup
     ) -> torch.Tensor:
+        if not self.normalize_x:
+            x = x / schedules.s(timestep).view(-1, 1, 1, 1)
+
         timestep = timestep.adapt(self.timestep_config)
-        s_t = schedules.s(timestep).view(-1, 1, 1, 1)
         sigma_t = schedules.edm_sigma(timestep).view(-1, 1, 1, 1)
 
         sigma_data = 0.5
-
-        normalized_x = x / s_t
         c_noise = (1.0 / 4 * torch.log(sigma_t)).view(-1)
         c_in = 1.0 / torch.sqrt(sigma_t**2 + sigma_data**2)
         c_out = sigma_t * sigma_data / torch.sqrt(sigma_t**2 + sigma_data**2)
         c_skip = sigma_data**2 / (sigma_t**2 + sigma_data**2)
-        pred = self._predict(c_in * normalized_x, c_noise)
+        pred = self._predict(c_in * x, c_noise)
 
-        return c_skip * normalized_x + c_out * pred
+        return c_skip * x + c_out * pred
 
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         return self.unet(x, timestep=timestep).sample
@@ -96,7 +102,7 @@ class PredictorEDM2(PredictorEDM):
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
         self.unet = UNetEDM2(
             img_resolution=img_width,

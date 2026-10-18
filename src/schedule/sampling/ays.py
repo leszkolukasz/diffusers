@@ -137,6 +137,8 @@ class AYSSamplingSchedule(SamplingSchedule):
             start_iter = 0
             steps = self._subdivide(steps)
 
+            logger.info(f"Subdivided steps for next stage ({stage}-step): {steps}")
+
         return self._interpolate_timesteps(
             Timestep(self.timestep_config, steps), n_steps
         ).reverse()
@@ -144,6 +146,7 @@ class AYSSamplingSchedule(SamplingSchedule):
     def _optimize(
         self,
         steps: torch.Tensor,
+        *,
         max_iter: int,
         desc: str,
         stage: int,
@@ -178,23 +181,28 @@ class AYSSamplingSchedule(SamplingSchedule):
                 candidates = self._get_candidates(s, t, t_next)
                 klub_per_candidate = []
 
-                pbar_steps.set_description(f"Iter {current_iter}: Optimizing t_{i}")
-
-                pbar_candidates = tqdm(candidates, desc="Candidates", leave=False)
-                for cand in pbar_candidates:
-                    pbar_candidates.set_description(
-                        f"t_{i} candidate: {cand.item():.4f}"
+                if len(candidates) == 1:
+                    logger.warning(
+                        f"Skipping optimization for t_{i} due to reaching min gap."
                     )
+                else:
+                    pbar_steps.set_description(f"Iter {current_iter}: Optimizing t_{i}")
 
-                    klub = self._estimate_klub(s, cand.item())
-                    klub += self._estimate_klub(cand.item(), t_next)
-                    klub_per_candidate.append(klub)
+                    pbar_candidates = tqdm(candidates, desc="Candidates", leave=False)
+                    for cand in pbar_candidates:
+                        pbar_candidates.set_description(
+                            f"t_{i} candidate: {cand.item():.4f}"
+                        )
 
-                argmin = int(torch.argmin(torch.tensor(klub_per_candidate)).item())
+                        klub = self._estimate_klub(s, cand.item())
+                        klub += self._estimate_klub(cand.item(), t_next)
+                        klub_per_candidate.append(klub)
 
-                if candidates[argmin].item() != t:
-                    steps[i] = candidates[argmin]
-                    no_change = False
+                    argmin = int(torch.argmin(torch.tensor(klub_per_candidate)).item())
+
+                    if candidates[argmin].item() != t:
+                        steps[i] = candidates[argmin]
+                        no_change = False
 
             pbar_outer.update(1)
 
@@ -267,8 +275,14 @@ class AYSSamplingSchedule(SamplingSchedule):
         klub_sum = 0.0
         sample_count = 0
 
-        t_start = max(t_start, MIN_T)
-        t_end = max(t_end, t_start + MIN_GAP)
+        # t_start = max(t_start, MIN_T)
+        # t_end = max(t_end, t_start + MIN_GAP)
+        assert t_start < t_end
+
+        if t_end - t_start < MIN_GAP:
+            logger.warning(
+                f"Gap between t_start={t_start:.6f} and t_end={t_end:.6f} is too small and may lead to numerical instability."
+            )
 
         for X in self._get_data_samples():
             t_samples = (
@@ -279,47 +293,59 @@ class AYSSamplingSchedule(SamplingSchedule):
                 )
             )
             timestep_samples = Timestep(self.timestep_config, t_samples)
+            timestep_start = Timestep(
+                self.timestep_config, torch.tensor([t_start], device=X.device)
+            )
             timestep_end = Timestep(
                 self.timestep_config, torch.tensor([t_end], device=X.device)
             )
 
+            sigma_t_start = self.schedules.sigma(timestep_start).view(-1, 1, 1, 1)
+            sigma_t = self.schedules.sigma(timestep_samples).view(-1, 1, 1, 1)
+            sigma_t_end = self.schedules.sigma(timestep_end).view(-1, 1, 1, 1)
+
+            s_t = self.schedules.s(timestep_samples).view(-1, 1, 1, 1)
+            s_t_end = self.schedules.s(timestep_end).view(-1, 1, 1, 1)
+
             # (batch, channels, height, width)
             X_t, _ = diffuse(
-                X,
-                timestep_samples,
-                self.schedules,
+                x0=X,
+                t=timestep_samples,
+                schedules=self.schedules,
             )
 
             X_t_end = diffuse_from(
-                X,
-                X_t,
-                timestep_samples,
-                timestep_end,
-                self.schedules,
+                x_0=X,
+                x_s=X_t,
+                t_s=timestep_samples,
+                t=timestep_end,
+                schedules=self.schedules,
             )
 
             pred_t = self.model(
-                X_t, timestep=timestep_samples, schedules=self.schedules
+                X_t / s_t, timestep=timestep_samples, schedules=self.schedules
             )
             pred_t_end = self.model(
-                X_t_end,
+                X_t_end / s_t_end,
                 timestep=timestep_end,
                 schedules=self.schedules,
             )
 
             pred_diff_norm = (pred_t_end - pred_t).view(X.size(0), -1).norm(dim=1) ** 2
 
-            factor = (
-                torch.tensor((t_end - t_start), device=self.config.device)
+            importance_factor = (
+                torch.tensor((sigma_t_end - sigma_t_start), device=self.config.device)
                 if not self.config.importance_sampling
-                else self.schedules.edm_sigma(timestep_samples) ** 3
-                / (1 / (t_start**2 + 0.5**2) - 1 / (t_end**2 + 0.5**2))
+                # Note: sigma_t ** 3 is skipped as it cancels out
+                else 1 / (1 / (sigma_t**2 + 0.5**2) - 1 / (sigma_t_end**2 + 0.5**2))
             )
 
-            assert torch.all(factor > 0)
+            assert torch.all(importance_factor > 0)
 
+            # Note: Formally AYS works only with SDE, but experiments showed that
+            # it works with ODE as well.
             if self.equation_type in [
-                EquationType.song_sde,
+                EquationType.score_sde,
                 EquationType.probability_flow,
             ]:
                 assert self.model.target == PredictionTarget.x0
@@ -327,9 +353,9 @@ class AYSSamplingSchedule(SamplingSchedule):
                 integral = (
                     self.schedules.s(timestep_samples)
                     * self.schedules.edm_sigma.derivative(timestep_samples)
-                    * (1 / self.schedules.edm_sigma(timestep_samples) ** 3)
                     * pred_diff_norm
-                    * factor
+                    # Note 1/sigma_t ** 3 is skipped as it cancels out with importance_factor
+                    * importance_factor
                 )
             elif self.equation_type == EquationType.generalized_differential:
                 assert self.model.target == PredictionTarget.Noise
@@ -340,7 +366,7 @@ class AYSSamplingSchedule(SamplingSchedule):
                         self.schedules.lambda_.derivative(timestep_samples)
                         * pred_diff_norm
                     )
-                    * factor
+                    * importance_factor
                 )
             else:
                 raise ValueError(f"Unsupported equation type: {self.equation_type}")
@@ -352,9 +378,6 @@ class AYSSamplingSchedule(SamplingSchedule):
 
     # Inverse Transform Sampling
     def _importance_sample(self, n: int, t_start: float, t_end: float) -> torch.Tensor:
-        t_start = max(t_start, MIN_T)
-        t_end = max(t_end, t_start + MIN_GAP)
-
         c = 0.5
         t_grid = torch.linspace(
             t_start,
@@ -364,7 +387,6 @@ class AYSSamplingSchedule(SamplingSchedule):
         )
 
         pi_t = (1.0 / t_grid**3) * (1.0 / (t_grid**2 + c**2) - 1.0 / (t_end**2 + c**2))
-        print(t_start, t_end, t_grid.min(), t_grid.max(), pi_t.min(), pi_t.max())
         assert torch.all(pi_t >= 0)
 
         pi_t = torch.clamp(pi_t, min=EPSILON)
@@ -375,7 +397,7 @@ class AYSSamplingSchedule(SamplingSchedule):
         u = torch.rand(n, device=self.config.device)
 
         indices = torch.searchsorted(cdf, u)
-        indices = torch.clamp(indices, 0, len(t_grid) - 1)
+        assert 0 <= indices.min() and indices.max() < len(t_grid)
 
         return t_grid[indices]
 

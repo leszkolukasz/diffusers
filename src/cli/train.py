@@ -49,7 +49,7 @@ def train(
         ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
     ),
     eta: EtaType = typer.Option(
-        EtaType.ddpm,
+        EtaType.deterministic,
         "--eta",
         help="Stochasticity",
     ),
@@ -67,6 +67,11 @@ def train(
         help="Whether to use automatic mixed precision training",
     ),
     use_vae: bool = typer.Option(True, "--vae/--no-vae", help="Whether to use VAE"),
+    use_x_norm: bool = typer.Option(
+        False,
+        "--x-norm/--no-x-norm",
+        help="Whether to normalize the input x by s(t) before passing it to the model",
+    ),
     vae_model_id: str = typer.Option(
         "madebyollin/taesd", "--vae-model-id", help="HF repo ID for the VAE"
     ),
@@ -148,12 +153,20 @@ def train(
         n_channels = vae.get_latent_channels()
         logger.info(f"Latent size: {n_channels}x{img_width}x{img_height}")
 
+    if use_x_norm:
+        logger.info("Enabling input normalization")
+    else:
+        logger.warning(
+            "x normalization is disabled. This means this model will not work with ScoreSDE and PF-ODE"
+        )
+
     model = model_class(
         T=predictor_t,
         model_size=model_size,
         n_channels=n_channels,
         img_width=img_width,
         img_height=img_height,
+        normalize_x=use_x_norm,
         suffix=f"_{dataset.value}_{model_suffix}"
         if model_suffix
         else f"_{dataset.value}",

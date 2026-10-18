@@ -17,7 +17,7 @@ from src.equation import (
     GeneralizedDifferential,
     GeneralizedDiscrete,
     ProbabilityFlow,
-    SongSDE,
+    ScoreSDE,
 )
 from src.model import Predictor, PredictorEDM, PredictorEDM2, PredictorUNet
 from src.schedule import (
@@ -79,12 +79,12 @@ EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
     EquationType.generalized_discrete: GeneralizedDiscrete,
     EquationType.generalized_differential: GeneralizedDifferential,
     EquationType.probability_flow: ProbabilityFlow,
-    EquationType.song_sde: SongSDE,
+    EquationType.score_sde: ScoreSDE,
 }
 
 # Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
-    DatasetType.mnist: DatasetConfig(datasets.MNIST, 3, 128),
+    DatasetType.mnist: DatasetConfig(datasets.MNIST, 3, 32),
     DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
     DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, path="data/celebA"),
@@ -119,7 +119,7 @@ def get_solver_T(
         return 1.0
     if (
         equation_name == EquationType.probability_flow
-        or equation_name == EquationType.song_sde
+        or equation_name == EquationType.score_sde
     ):
         return float(predictor_t) if schedule_name == ScheduleType.edm else 1.0
     raise ValueError(f"Unknown equation config name: {equation_name}")

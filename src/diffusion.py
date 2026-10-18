@@ -15,16 +15,22 @@ def diffuse(x0: Tensor, t: Timestep, schedules: ScheduleGroup) -> tuple[Tensor, 
 
 # Samples from p(x_t | x_s, x_0) where t > s
 def diffuse_from(
+    *,
     x_0: Tensor,
     x_s: Tensor,
     t_s: Timestep,
     t: Timestep,
     schedules: ScheduleGroup,
 ) -> Tensor:
-    noise = torch.rand_like(x_0)
+    noise = torch.randn_like(x_0)
+
     alpha_t = schedules.alpha(t).view(-1, 1, 1, 1)
     sigma_t = schedules.sigma(t).view(-1, 1, 1, 1)
     alpha_s = schedules.alpha(t_s).view(-1, 1, 1, 1)
     sigma_s = schedules.sigma(t_s).view(-1, 1, 1, 1)
 
-    return x_s + (alpha_t - alpha_s) * x_0 + torch.sqrt(sigma_t**2 - sigma_s**2) * noise
+    alpha_ratio = alpha_t / alpha_s
+
+    variance = sigma_t**2 - (alpha_ratio**2) * (sigma_s**2)
+
+    return alpha_ratio * x_s + torch.sqrt(variance) * noise

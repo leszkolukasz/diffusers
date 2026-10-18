@@ -56,7 +56,7 @@ uv run main.py generate \
 Train with:
 
 ```
- uv run main.py train --dataset mnist --model edm --schedule edm 
+uv run main.py train --dataset mnist --model edm --schedule edm --x-norm --no-vae
 ```
 
 Generate with:
@@ -67,7 +67,7 @@ uv run main.py generate \
     --sampling-schedule edm \
     --equation probability_flow \
     --solver heun \
-    --model-path ./models/x0_predictor_edm_mnist.pth
+    --model-path ./models/x0_norm_x_predictor_edm_small_mnist.pth
 ```
 
 ### Huggingface DDPM model

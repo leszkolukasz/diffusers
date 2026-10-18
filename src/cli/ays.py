@@ -50,7 +50,7 @@ def tune(
     schedule: ScheduleType = typer.Option(
         ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
     ),
-    eta: EtaType = typer.Option(EtaType.ddpm, "--eta", help="Stochasticity"),
+    eta: EtaType = typer.Option(EtaType.deterministic, "--eta", help="Stochasticity"),
     equation_name: EquationType = typer.Option(
         EquationType.probability_flow, "--equation", help="Reverse diffusion equation"
     ),
@@ -124,6 +124,15 @@ def tune(
     logger.info(
         f"Model loaded. Total parameters: {sum(p.numel() for p in model.parameters()):,}"
     )
+
+    if (
+        equation_name in [EquationType.score_sde, EquationType.probability_flow]
+        and not model.normalize_x
+    ):
+        logger.error(
+            f"Model '{model_name.value}' is not trained to operate on normalized x. This is required for the '{equation_name.value}' equation."
+        )
+        raise typer.Exit(code=1)
 
     schedule_kwargs = {}
     if model_id:

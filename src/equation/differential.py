@@ -52,11 +52,11 @@ class ProbabilityFlow(GeneralizedDifferential):
         d_s_t = self.schedules.s.derivative(t).view(-1, 1, 1, 1)
 
         assert self.model.target == PredictionTarget.x0
-        pred = self.model(x_t, timestep=t, schedules=self.schedules)
+        pred = self.model(x_t / s_t, timestep=t, schedules=self.schedules)
 
-        # Note: Align Your Steps and EDM paper have slighly different formulas
-        # that differ by factors of s(t). It does not really matter as s(t)=1
-        # in this codebase but I guess one paper has it wrong.
+        # Note: Align Your Steps has wrong formula here, with additional multiplication by s_t.
+        # This stems from incorrect calculation of score(x_t / s(t)).
+        # Though, it does not matter as we use s(t) = 1.
         return (
             d_edm_sigma_t / edm_sigma_t + d_s_t / s_t
         ) * x_t - d_edm_sigma_t * s_t / edm_sigma_t * pred
@@ -65,7 +65,7 @@ class ProbabilityFlow(GeneralizedDifferential):
         raise NotImplementedError("Probability flow is not stochastic")
 
 
-class SongSDE(DifferentialEquation):
+class ScoreSDE(DifferentialEquation):
     def drift(self, x_t: torch.Tensor, t: Timestep) -> torch.Tensor:
         edm_sigma_t = self.schedules.edm_sigma(t).view(-1, 1, 1, 1)
         d_edm_sigma_t = self.schedules.edm_sigma.derivative(t).view(-1, 1, 1, 1)
@@ -74,7 +74,7 @@ class SongSDE(DifferentialEquation):
         d_s_t = self.schedules.s.derivative(t).view(-1, 1, 1, 1)
 
         assert self.model.target == PredictionTarget.x0
-        pred = self.model(x_t, timestep=t, schedules=self.schedules)
+        pred = self.model(x_t / s_t, timestep=t, schedules=self.schedules)
 
         return (
             2 * d_edm_sigma_t / edm_sigma_t + d_s_t / s_t

@@ -120,9 +120,25 @@ class Predictor(PersistableModule, ABC):
     img_width: int
     img_height: int
     target: PredictionTarget
+    normalize_x: (
+        bool  # Whether to normalize the input x by s(t) before passing it to the model
+    )
+
+    def forward(  # ty: ignore[invalid-mutable-override]
+        self,
+        x: torch.Tensor,
+        timestep: Timestep,
+        schedules: ScheduleGroup | None = None,
+    ) -> torch.Tensor:
+        if self.normalize_x:
+            if schedules is None:
+                raise ValueError("schedules must be provided when normalize_x is True")
+            x = x / schedules.s(timestep).view(-1, 1, 1, 1)
+
+        return self._forward(x=x, timestep=timestep, schedules=schedules)
 
     @abstractmethod
-    def forward(  # ty: ignore[invalid-mutable-override]
+    def _forward(
         self,
         x: torch.Tensor,
         timestep: Timestep,
@@ -142,6 +158,7 @@ class Predictor(PersistableModule, ABC):
             img_width=self.img_width,
             img_height=self.img_height,
             target=self.target.value,
+            normalize_x=self.normalize_x,
             **extra_metadata,
         )
 
@@ -151,6 +168,7 @@ class Predictor(PersistableModule, ABC):
         meta_n_channels = self.metadata.get("n_channels", None)
         meta_img_width = self.metadata.get("img_width", None)
         meta_img_height = self.metadata.get("img_height", None)
+        meta_normalize_x = self.metadata.get("normalize_x", None)
         meta_target = self.metadata.get("target", None)
 
         if meta_T is not None and meta_T != self.timestep_config.T:
@@ -163,6 +181,7 @@ class Predictor(PersistableModule, ABC):
             ("img_width", meta_img_width, self.img_width),
             ("img_height", meta_img_height, self.img_height),
             ("target", meta_target, self.target.value if self.target else None),
+            ("normalize_x", meta_normalize_x, self.normalize_x),
         ]:
             if meta_value is not None and meta_value != current_value:
                 logger.warning(

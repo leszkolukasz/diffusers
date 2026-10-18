@@ -26,7 +26,9 @@ class EDMSamplingSchedule(SamplingSchedule):
         indices = torch.arange(n_steps, dtype=torch.float32)
 
         inv_rho = 1.0 / self.rho
-        sigmas = self.sigma_max**inv_rho + indices / (n_steps - 1) * (
+        sigmas = self.sigma_max**inv_rho + indices / (
+            n_steps - 1
+        ) * (  # TODO: or just n_steps?
             self.sigma_min**inv_rho - self.sigma_max**inv_rho
         )
         sigmas = sigmas**self.rho
