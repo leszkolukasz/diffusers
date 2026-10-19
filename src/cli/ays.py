@@ -22,7 +22,11 @@ from src.config.presets import (
 from src.dataset import get_dataloader
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
-from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
+from src.schedule.sampling import (
+    EDMSamplingSchedule,
+    LinearLogSNRSamplingSchedule,
+    LinearSamplingSchedule,
+)
 from src.schedule.sampling.ays import (
     AYSConfig,
     AYSSamplingSchedule,
@@ -165,6 +169,12 @@ def tune(
         initial_t = EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
     elif initial_sampling_schedule == SamplingScheduleType.linear:
         initial_t = LinearSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
+    elif initial_sampling_schedule == SamplingScheduleType.logsnr_linear:
+        initial_t = (
+            LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
     else:
         raise ValueError(
             f"Unsupported initial schedule: {initial_sampling_schedule.value}"

@@ -145,6 +145,23 @@ wheels = [
 ]
 
 [[package]]
+name = "clean-fid"
+version = "0.1.35"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "requests" },
+    { name = "scipy" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "tqdm" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/56/0dfc83e0fe455cfe6272b23a65039b4101c63a4e7446801e26178b675fbf/clean_fid-0.1.35-py3-none-any.whl", hash = "sha256:757cf49d75debe9b07ab14955fe59c845a296deaf0616153b40c5e75b3cf87fb", size = 26008, upload-time = "2022-12-18T20:19:35.819Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -265,6 +282,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "accelerate" },
+    { name = "clean-fid" },
     { name = "diffusers" },
     { name = "gdown" },
     { name = "kaleido" },
@@ -290,6 +308,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=1.12.0" },
+    { name = "clean-fid", specifier = ">=0.1.35" },
     { name = "diffusers", specifier = ">=0.35.2" },
     { name = "gdown", specifier = ">=5.2.1" },
     { name = "kaleido", specifier = ">=1.1.0" },

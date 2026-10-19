@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from torch.utils.data import Dataset
 from torchvision.datasets import VisionDataset
 
 if TYPE_CHECKING:
@@ -26,6 +27,7 @@ class ScheduleType(str, Enum):
 class SamplingScheduleType(str, Enum):
     linear = "linear"
     edm = "edm"
+    logsnr_linear = "logsnr_linear"
     discrete = "discrete"
     custom = "custom"
 
@@ -52,6 +54,7 @@ class DatasetType(str, Enum):
     stl10 = "stl10"
     food101 = "food101"
     ays_toy = "ays_toy"
+    pattern_spiral = "pattern_spiral"
 
 
 class ModelType(str, Enum):
@@ -63,7 +66,7 @@ class ModelType(str, Enum):
 
 @dataclass
 class DatasetConfig:
-    dataset_class: type[VisionDataset]
+    dataset_class: type[Dataset | VisionDataset]
     channels: int
     img_size: int
     split: str | None = None

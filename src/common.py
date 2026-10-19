@@ -5,7 +5,7 @@ import torch.distributed
 from diffusers import DDPMScheduler, UNet2DModel
 
 
-def get_device():
+def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 

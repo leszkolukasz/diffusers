@@ -2,15 +2,17 @@ import os
 from copy import deepcopy
 from typing import Any
 
+import numpy as np
 import torch
 import torch.distributed
 from PIL import Image
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from torchvision import datasets, transforms
-from torchvision.datasets import VisionDataset
 
 from src.config import DatasetConfig
 from src.distributed import get_rank, get_world_size, is_distributed
+
+N_SAMPLES = 10000
 
 
 def unnormalize(img: torch.Tensor) -> torch.Tensor:
@@ -25,30 +27,35 @@ def get_dataloader(
     shuffle=True,
     num_workers=1,
 ):
-    transform = transforms.Compose(
-        [
-            transforms.Resize(dataset_config.img_size),
-            transforms.CenterCrop(dataset_config.img_size),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.ToTensor(),
-            transforms.Lambda(
-                lambda x: (
-                    x.repeat(dataset_config.channels, 1, 1)
-                    if x.shape[0] == 1 and dataset_config.channels > 1
-                    else x
-                )
-            ),
-            transforms.Normalize(mean=(0.5,), std=(0.5,)),
-        ]
-    )
+    is_toy_dataset = dataset_config.dataset_class in [AYSToyDataset, PatternDataset]
+
+    if is_toy_dataset:
+        transform = None
+    else:
+        transform = transforms.Compose(
+            [
+                transforms.Resize(dataset_config.img_size),
+                transforms.CenterCrop(dataset_config.img_size),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.ToTensor(),
+                transforms.Lambda(
+                    lambda x: (
+                        x.repeat(dataset_config.channels, 1, 1)
+                        if x.shape[0] == 1 and dataset_config.channels > 1
+                        else x
+                    )
+                ),
+                transforms.Normalize(mean=(0.5,), std=(0.5,)),
+            ]
+        )
 
     dataset_kwargs: dict[str, Any] = (
         deepcopy(dataset_config.kwargs) if dataset_config.kwargs is not None else {}
     )
 
-    # Auto-generated datasets use those kwargs
-    dataset_kwargs["n_channels"] = dataset_config.channels
-    dataset_kwargs["img_size"] = dataset_config.img_size
+    if is_toy_dataset:
+        dataset_kwargs["n_channels"] = dataset_config.channels
+        dataset_kwargs["img_size"] = dataset_config.img_size
 
     if dataset_config.split is not None:
         dataset_kwargs["split"] = dataset_config.split
@@ -61,15 +68,14 @@ def get_dataloader(
         should_download = get_rank() == 0
 
     if dataset_config.path is None:
+        dataset_kwargs["root"] = "./data"
+        dataset_kwargs["transform"] = transform
+        dataset_kwargs["download"] = should_download
+
         dataset = dataset_config.dataset_class(
-            root="./data",
-            download=should_download,  # ty: ignore
-            transform=transform,
             **dataset_kwargs,
         )
     else:
-        # This is mostly hack for CelebA, as Dataset.CelebA is stored on
-        # cloud where download fails. So we need to download it manually.
         dataset = datasets.ImageFolder(
             root=dataset_config.path,
             transform=transform,
@@ -96,55 +102,104 @@ def get_dataloader(
     return loader
 
 
-class AYSToyDataset(VisionDataset):
-    path: str
+class AYSToyDataset(Dataset):
+    img_size: int
+    n_channels: int
+    num_samples: int
+    c: float
+    data: torch.Tensor
 
     def __init__(
         self,
-        root: str,
-        img_size: int,
+        num_samples: int,
+        img_size: int = 32,
         n_channels: int = 1,
         c: float = 0.5,
-        download: bool = True,
-        num_samples: int = 1000,
-        transform=None,
+        seed: int = 42,
+        **kwargs,
     ):
-        super().__init__(root=root, transform=transform)
+        super().__init__()
         self.img_size = img_size
-        self.c = c
         self.n_channels = n_channels
         self.num_samples = num_samples
-        self.path = os.path.join(root, "ays_toy")
+        self.c = c
 
-        if download:
-            os.makedirs(self.path, exist_ok=True)
-            self.generate_data()
-
-        self.image_paths = self.get_image_paths()
-
-    def generate_data(self):
-        for i in range(self.num_samples):
-            img = torch.rand(self.n_channels, self.img_size, self.img_size) * self.c
-            img_path = os.path.join(self.path, f"sample_{i:04d}.png")
-            transforms.ToPILImage()(img).save(img_path)
-
-    def get_image_paths(self):
-        paths = []
-        for img_file in sorted(os.listdir(self.path)):
-            if img_file.endswith(".png"):
-                paths.append(os.path.join(self.path, img_file))
-        return paths
+        gen = torch.Generator().manual_seed(seed)
+        self.data = (
+            torch.randn(num_samples, n_channels, img_size, img_size, generator=gen)
+            * self.c
+        )
 
     def __len__(self):
-        return len(self.image_paths)
+        return self.num_samples
 
     def __getitem__(self, index):
-        img_path = self.image_paths[index]
+        return self.data[index], torch.tensor(0)
 
-        mode = "RGB" if self.n_channels == 3 else "L"
-        img = Image.open(img_path).convert(mode)
 
-        if self.transform:
-            img = self.transform(img)
+class PatternDataset(Dataset):
+    pattern_path: str
+    num_samples: int
+    rng: np.random.Generator
+    pdf: np.ndarray
+    h: int
+    w: int
 
-        return img, torch.tensor(0)  # Dummy label
+    def __init__(
+        self,
+        pattern_path: str,
+        num_samples: int,
+        invert: bool = True,
+        seed: int = 42,
+        **kwargs,
+    ):
+        super().__init__()
+        self.num_samples = num_samples
+        self.pattern_path = pattern_path
+
+        self.rng = np.random.default_rng(seed)
+
+        if not os.path.exists(pattern_path):
+            raise FileNotFoundError(f"Pattern image not found: {pattern_path}")
+
+        img = Image.open(pattern_path).convert("L")
+        img_arr = np.array(img, dtype=np.float32)
+
+        if invert:
+            img_arr = 255.0 - img_arr
+
+        img_arr[img_arr < 10.0] = 0.0
+
+        total_density = img_arr.sum()
+
+        self.pdf = (img_arr / total_density).flatten()
+        self.h, self.w = img_arr.shape
+
+        self.data = self._generate_points()
+
+    def _generate_points(self) -> torch.Tensor:
+        indices = self.rng.choice(self.h * self.w, size=self.num_samples, p=self.pdf)
+
+        y_discrete, x_discrete = np.unravel_index(indices, (self.h, self.w))
+
+        # Add Unif([-0.5, 0.5]) so that points are not centered on pixels
+        x_continuous = (
+            x_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
+        )
+        y_continuous = (
+            y_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
+        )
+
+        x_norm = (x_continuous / self.w) * 2.0 - 1.0
+        y_norm = 1.0 - (y_continuous / self.h) * 2.0
+
+        points = np.stack([x_norm, y_norm], axis=1)
+
+        # View (2, 1, 1) is needed to work with convolutional layers
+        return torch.tensor(points, dtype=torch.float32).view(self.num_samples, 2, 1, 1)
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, index):
+        return self.data[index], torch.tensor(0)

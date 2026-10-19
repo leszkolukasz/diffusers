@@ -18,6 +18,7 @@ scripts/*.py
 
 *.sif
 *.png
+!assets/*.png
 
 *.txt
 *.pth

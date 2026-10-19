@@ -83,6 +83,8 @@ EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
     EquationType.score_sde: ScoreSDE,
 }
 
+N_SAMPLES = 10000
+
 # Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
@@ -96,7 +98,13 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         AYSToyDataset,
         1,
         32,
-        kwargs={"num_samples": 10000},
+        kwargs={"num_samples": N_SAMPLES},
+    ),
+    DatasetType.pattern_spiral: DatasetConfig(
+        AYSToyDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral.png"},
     ),
 }
 

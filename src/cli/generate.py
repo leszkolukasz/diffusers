@@ -27,6 +27,7 @@ from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
+    LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
     Timestep,
     TimestepConfig,
@@ -180,6 +181,12 @@ def generate(
                 n_steps=n_steps
             ).cuda()
             logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
+        case SamplingScheduleType.logsnr_linear:
+            generator_kwargs["timesteps"] = (
+                LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T)
+                .get_timesteps(n_steps=n_steps)
+                .cuda()
+            )
         case SamplingScheduleType.discrete:
             logger.info("n_steps is ignored. Using all steps supported by model.")
             generator_kwargs["skip_last_step"] = True
