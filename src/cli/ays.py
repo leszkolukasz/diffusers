@@ -27,6 +27,7 @@ from src.schedule.sampling import (
     EDMSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
+    OptimalGaussianSamplingSchedule,
 )
 from src.schedule.sampling.ays import (
     AYSConfig,
@@ -42,6 +43,7 @@ def build_baseline_steps(
     schedules: ScheduleGroup | None = None,
     n_steps: int,
     max_t: float,
+    optimal_c: float = 0.5,
 ) -> dict[str, np.ndarray]:
     baselines: dict[str, np.ndarray] = {}
 
@@ -55,6 +57,10 @@ def build_baseline_steps(
                 raise ValueError("schedules are required for logsnr_linear")
             schedule = LinearLogSNRSamplingSchedule(
                 schedules=schedules, T=max_t, max_t=max_t
+            )
+        elif name == SamplingScheduleType.optimal_gaussian:
+            schedule = OptimalGaussianSamplingSchedule(
+                T=max_t, max_t=max_t, c=optimal_c
             )
         else:
             raise ValueError(f"Unsupported baseline comparison: {name.value}")
@@ -93,6 +99,11 @@ def tune(
         SamplingScheduleType.edm,
         "--initial-schedule",
         help="Initial time sampling",
+    ),
+    optimal_c: float = typer.Option(
+        0.5,
+        "--optimal-c",
+        help="Standard deviation c for the optimal Gaussian schedule.",
     ),
     checkpoint_path: str | None = typer.Option(
         None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
@@ -205,6 +216,12 @@ def tune(
             .get_timesteps(n_steps=10)
             .cuda()
         )
+    elif initial_sampling_schedule == SamplingScheduleType.optimal_gaussian:
+        initial_t = (
+            OptimalGaussianSamplingSchedule(T=solver_T, c=optimal_c)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
     else:
         raise ValueError(
             f"Unsupported initial schedule: {initial_sampling_schedule.value}"
@@ -264,6 +281,11 @@ def plot(
         "--schedule",
         help="Noise schedule used to build the logSNR baseline.",
     ),
+    optimal_c: float = typer.Option(
+        0.5,
+        "--optimal-c",
+        help="Standard deviation c for the optimal Gaussian baseline.",
+    ),
     output: str = typer.Option("ays_plot.png", "--output", "-o"),
 ):
     if not os.path.exists(checkpoint_path):
@@ -296,6 +318,7 @@ def plot(
             schedules=schedules,
             n_steps=n_steps,
             max_t=max_t,
+            optimal_c=optimal_c,
         )
     except ValueError as exc:
         logger.error(str(exc))

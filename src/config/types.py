@@ -28,6 +28,7 @@ class SamplingScheduleType(str, Enum):
     linear = "linear"
     edm = "edm"
     logsnr_linear = "logsnr_linear"
+    optimal_gaussian = "optimal_gaussian"
     discrete = "discrete"
     custom = "custom"
 
@@ -55,6 +56,7 @@ class DatasetType(str, Enum):
     food101 = "food101"
     ays_toy = "ays_toy"
     pattern_spiral = "pattern_spiral"
+    pattern_x = "pattern_x"
 
 
 class ModelType(str, Enum):

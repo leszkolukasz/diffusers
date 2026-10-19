@@ -7,6 +7,7 @@ class ModelSize(str, Enum):
     SMALL = "small"
     MEDIUM = "medium"
     LARGE = "large"
+    POINT = "point"
 
     @classmethod
     def from_value(cls, value: str) -> "ModelSize":
@@ -17,6 +18,13 @@ class ModelSize(str, Enum):
 
 
 UNET_PRESETS: dict[ModelSize, dict[str, Any]] = {
+    ModelSize.POINT: {  # for 1x1 inputs (2D point datasets)
+        "layers_per_block": 2,
+        "block_out_channels": (128,),
+        "down_block_types": ("DownBlock2D",),
+        "up_block_types": ("UpBlock2D",),
+        "norm_num_groups": 32,
+    },
     ModelSize.MICRO: {  # 1.6M params
         "layers_per_block": 2,
         "block_out_channels": (16, 32, 64, 64),

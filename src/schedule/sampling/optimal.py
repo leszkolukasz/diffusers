@@ -1,0 +1,44 @@
+"""Analytically optimal sampling schedule for Gaussian toy data (AYS paper)."""
+
+import math
+
+import torch
+
+from src.schedule.sampling.base import SamplingSchedule
+from src.timestep import Timestep, TimestepConfig
+
+
+# Optimal schedule from Theorem 3.1 of Align Your Steps
+class OptimalGaussianSamplingSchedule(SamplingSchedule):
+    def __init__(
+        self,
+        *,
+        c: float = 0.5,
+        T: float,
+        max_t: float = 80.0,
+        min_t: float = 0.0,
+    ):
+        c = float(c)
+        max_t = float(max_t)
+        min_t = float(min_t)
+
+        super().__init__(T=T, max_t=max_t)
+        self.c = c
+        self.min_t = min_t
+
+    def get_timesteps(self, n_steps: int, **kwargs) -> Timestep:
+        if n_steps < 1:
+            raise ValueError(f"n_steps must be at least 1, got {n_steps}")
+
+        alpha_min = math.atan(self.min_t / self.c)
+        alpha_max = math.atan(self.max_t / self.c)
+
+        alphas = torch.linspace(alpha_min, alpha_max, n_steps + 1)
+        steps = self.c * torch.tan(alphas)
+
+        # tan(atan(x)) is not exactly x in floating point.
+        steps[0] = self.min_t
+        steps[-1] = self.max_t
+        steps = torch.flip(steps, dims=[0])
+
+        return Timestep(TimestepConfig(kind="continuous", T=self.T), steps)

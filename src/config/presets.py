@@ -106,6 +106,12 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         1,
         kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral.png"},
     ),
+    DatasetType.pattern_x: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/x.png"},
+    ),
 }
 
 MODEL_CONFIGS: dict[ModelType, type[Predictor]] = {

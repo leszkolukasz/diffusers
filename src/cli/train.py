@@ -66,7 +66,7 @@ def train(
         "--amp/--no-amp",
         help="Whether to use automatic mixed precision training",
     ),
-    use_vae: bool = typer.Option(True, "--vae/--no-vae", help="Whether to use VAE"),
+    use_vae: bool = typer.Option(False, "--vae/--no-vae", help="Whether to use VAE"),
     use_x_norm: bool = typer.Option(
         False,
         "--x-norm/--no-x-norm",
@@ -153,6 +153,17 @@ def train(
         n_channels = vae.get_latent_channels()
         logger.info(f"Latent size: {n_channels}x{img_width}x{img_height}")
 
+    if img_width == 1 and img_height == 1:
+        if model_name == ModelType.edm2:
+            logger.error(
+                "EDM2 does not support 1x1 inputs. Use --model edm or --model unet."
+            )
+            raise typer.Exit(code=1)
+
+        if model_size != ModelSize.POINT:
+            logger.info("1x1 inputs require the 'point' model size; using it.")
+        model_size = ModelSize.POINT
+
     if use_x_norm:
         logger.info("Enabling input normalization")
     else:
@@ -189,6 +200,7 @@ def train(
             use_amp=use_amp,
             use_bf16=use_bf16,
             lr=1e-2 if is_edm2 else 1e-4,
+            dataset=dataset.value,
         ),
     )
     trainer.load_checkpoint()

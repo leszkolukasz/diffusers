@@ -45,6 +45,7 @@ class TrainingConfig:
     ema_update_every_n_steps: int = 10
     use_amp: bool = True  # Automatic Mixed Precision
     use_bf16: bool = False
+    dataset: str | None = None
 
 
 class Trainer:
@@ -111,6 +112,7 @@ class Trainer:
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
             PredictorMetadata.EtaSchedule: self.schedules.eta.__class__.__name__,
             PredictorMetadata.VAE: self.vae.model_id if self.vae is not None else None,
+            PredictorMetadata.Dataset: self.config.dataset,
         }
 
         model.save(**metadata)

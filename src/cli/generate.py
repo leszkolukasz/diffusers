@@ -32,6 +32,7 @@ from src.schedule.sampling import (
     EDMSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
+    OptimalGaussianSamplingSchedule,
     Timestep,
     TimestepConfig,
 )
@@ -45,6 +46,17 @@ def is_toy_dataset(dataset: DatasetType | None) -> bool:
     return (
         dataset is not None and DATASET_CONFIGS[dataset].dataset_class in TOY_DATASETS
     )
+
+
+def dataset_from_metadata(metadata: dict) -> DatasetType | None:
+    value = metadata.get(PredictorMetadata.Dataset)
+    if not value:
+        return None
+    try:
+        return DatasetType(value)
+    except ValueError:
+        logger.warning(f"Unknown dataset in model metadata: {value}")
+        return None
 
 
 def save_generation_output(
@@ -95,11 +107,6 @@ def generate(
         "--model-id",
         help="HuggingFace repository ID (required if model=huggingface)",
     ),
-    dataset: DatasetType | None = typer.Option(
-        None,
-        "--dataset",
-        help="Dataset used for training. Toy datasets are saved as tensors.",
-    ),
     schedule: ScheduleType = typer.Option(
         ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
     ),
@@ -119,6 +126,11 @@ def generate(
         None,
         "--sampling-timesteps-path",
         help="Path to custom sampling timesteps (AYS, ETS)",
+    ),
+    optimal_c: float = typer.Option(
+        0.5,
+        "--optimal-c",
+        help="Standard deviation c for the optimal Gaussian sampling schedule.",
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -157,6 +169,10 @@ def generate(
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
         model.load()
+
+    dataset = dataset_from_metadata(model.metadata)
+    if dataset is not None:
+        logger.info(f"Model dataset: {dataset.value}")
 
     model.eval()
     logger.info(
@@ -233,6 +249,17 @@ def generate(
         case SamplingScheduleType.logsnr_linear:
             generator_kwargs["timesteps"] = (
                 LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T)
+                .get_timesteps(n_steps=n_steps)
+                .cuda()
+            )
+        case SamplingScheduleType.optimal_gaussian:
+            if schedule != ScheduleType.edm:
+                logger.warning(
+                    "The optimal Gaussian schedule assumes s(t)=1 and sigma(t)=t "
+                    "(EDM schedule)."
+                )
+            generator_kwargs["timesteps"] = (
+                OptimalGaussianSamplingSchedule(T=solver_T, c=optimal_c)
                 .get_timesteps(n_steps=n_steps)
                 .cuda()
             )

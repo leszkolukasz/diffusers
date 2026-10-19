@@ -56,7 +56,7 @@ uv run main.py generate \
 Train with:
 
 ```
-uv run main.py train --dataset mnist --model edm --schedule edm --x-norm --no-vae
+uv run main.py train --dataset mnist --model edm --schedule edm --x-norm
 ```
 
 Generate with:
