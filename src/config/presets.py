@@ -90,6 +90,9 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
     DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
     DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
+    DatasetType.cifar10_test: DatasetConfig(
+        datasets.CIFAR10, 3, 32, kwargs={"train": False}
+    ),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, path="data/celebA"),
     DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
     DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 128, split="unlabeled"),
@@ -130,7 +133,9 @@ def get_timesampler(schedule_name: ScheduleType) -> TimeSampler:
 
 
 def get_solver_T(
-    equation_name: EquationType, schedule_name: ScheduleType, predictor_t: int
+    equation_name: EquationType,
+    schedule_name: ScheduleType,
+    predictor_t: float,
 ) -> float:
     """Returns maximum time step T solver can be run with."""
     is_discrete = equation_name == EquationType.generalized_discrete

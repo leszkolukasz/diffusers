@@ -51,6 +51,7 @@ class DatasetType(str, Enum):
     mnist = "mnist"
     fashion = "fashion"
     cifar10 = "cifar10"
+    cifar10_test = "cifar10_test"
     celeb = "celeb"
     flowers = "flowers"
     stl10 = "stl10"

@@ -6,6 +6,7 @@ import torch
 import torchvision
 import typer
 from loguru import logger
+from tqdm import tqdm
 
 from src.config import (
     DatasetType,
@@ -60,13 +61,12 @@ def save_generation_output(
     output_path: str | Path,
     dataset: DatasetType | None,
     metadata: dict[str, Any] | None = None,
+    start_index: int = 0,
 ) -> Path:
     out = Path(output_path)
     out.mkdir(parents=True, exist_ok=True)
 
-    is_pattern_shape = generated.ndim == 4 and generated.shape[1:] == (2, 1, 1)
-
-    if is_toy_dataset(dataset) or is_pattern_shape:
+    if is_toy_dataset(dataset):
         name = f"samples_{dataset.value}.pth" if dataset else "samples.pth"
         save_path = out / name
         torch.save(
@@ -82,7 +82,7 @@ def save_generation_output(
     for index in range(generated.shape[0]):
         torchvision.utils.save_image(
             unnormalize(generated[index]),
-            out / f"{index + 1}.png",
+            out / f"{start_index + index + 1}.png",
         )
 
     return out
@@ -122,9 +122,9 @@ def generate(
         "--sampling-timesteps-path",
         help="Path to custom sampling timesteps (AYS, ETS)",
     ),
-    optimal_c: float = typer.Option(
+    c: float = typer.Option(
         0.5,
-        "--optimal-c",
+        "--c",
         help="Standard deviation c for the Gaussian optimal schedules.",
     ),
     vae_low_memory: bool = typer.Option(
@@ -133,6 +133,15 @@ def generate(
     n_steps: int = typer.Option(100, "--n-steps", help="Number of solver steps"),
     n_samples: int = typer.Option(
         30, "--n-samples", help="Number of images to generate"
+    ),
+    batch_size: int = typer.Option(
+        256, "--batch-size", help="Samples per generation batch (lower if OOM)."
+    ),
+    output_dir: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output directory (default: generated/<solver>_<schedule>).",
     ),
 ):
     logger.info("Starting the generation")
@@ -164,7 +173,7 @@ def generate(
 
     logger.info(f"Signal/Noise Schedule: {schedule.value}")
 
-    output_path = f"generated/{solver_name.value}_{schedule.value}"
+    output_path = output_dir or f"generated/{solver_name.value}_{schedule.value}"
     os.makedirs(output_path, exist_ok=True)
 
     model.eval()
@@ -220,8 +229,6 @@ def generate(
 
     generator = Generator(solver=solver, vae=vae)
 
-    logger.info(f"Generating {n_samples} samples...")
-
     variance_exploding = (
         schedules.sigma.exploding if hasattr(schedules.sigma, "exploding") else False
     )
@@ -261,9 +268,7 @@ def generate(
                 else GaussKLUBOptimalSamplingSchedule
             )
             generator_kwargs["timesteps"] = (
-                optimal_cls(T=solver_T, c=optimal_c)
-                .get_timesteps(n_steps=n_steps)
-                .cuda()
+                optimal_cls(T=solver_T, c=c).get_timesteps(n_steps=n_steps).cuda()
             )
         case SamplingScheduleType.discrete:
             logger.info("n_steps is ignored. Using all steps supported by model.")
@@ -282,22 +287,46 @@ def generate(
             logger.error(f"Unsupported sampling schedule: {sampling_schedule.value}")
             raise typer.Exit(code=1)
 
-    with torch.no_grad():
-        generated = generator.generate(
-            n_samples=n_samples,
-            **generator_kwargs,
-        )
+    metadata = {
+        "n_samples": n_samples,
+        "model_path": model_path,
+        "solver": solver_name.value,
+        "schedule": schedule.value,
+        "sampling_schedule": sampling_schedule.value,
+    }
+    save_as_tensor = is_toy_dataset(dataset)
 
-    saved = save_generation_output(
-        generated,
-        output_path,
-        dataset,
-        metadata={
-            "n_samples": n_samples,
-            "model_path": model_path,
-            "solver": solver_name.value,
-            "schedule": schedule.value,
-            "sampling_schedule": sampling_schedule.value,
-        },
-    )
-    logger.success(f"Saved generation output to {saved}")
+    logger.info(f"Generating {n_samples} samples in batches of {batch_size}...")
+    stored_chunks: list[torch.Tensor] = []
+    n_batches = (n_samples + batch_size - 1) // batch_size
+
+    progress = tqdm(total=n_batches, desc="Generating", unit="batch")
+    try:
+        with torch.no_grad():
+            for start in range(0, n_samples, batch_size):
+                current = min(batch_size, n_samples - start)
+                chunk = generator.generate(
+                    n_samples=current,
+                    verbose=start == 0,
+                    **generator_kwargs,
+                )
+                if save_as_tensor:
+                    stored_chunks.append(chunk.cpu())
+                else:
+                    save_generation_output(
+                        chunk, output_path, dataset, metadata, start_index=start
+                    )
+
+                progress.update(1)
+                progress.set_postfix_str(
+                    f"{min(start + current, n_samples)}/{n_samples} samples"
+                )
+    finally:
+        progress.close()
+
+    if save_as_tensor:
+        generated = torch.cat(stored_chunks, dim=0)
+        saved = save_generation_output(generated, output_path, dataset, metadata)
+        logger.success(f"Saved generation output to {saved}")
+    else:
+        logger.success(f"Saved {n_samples} images to {output_path}")

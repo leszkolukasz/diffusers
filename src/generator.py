@@ -27,13 +27,15 @@ class Generator:
         timesteps: Timestep | None = None,
         skip_last_step: bool = False,
         variance_exploding: bool = False,
+        verbose: bool = True,
     ) -> torch.Tensor:
         if n_steps is None and timesteps is None:
             n_steps = int(self.solver.equation.model.timestep_config.T) - 1
-            logger.info(
-                f"Neither n_steps nor timesteps were provided. Using max number of steps according to model config: {n_steps}."
-                " For continuous generation, provide max_t as well."
-            )
+            if verbose:
+                logger.info(
+                    f"Neither n_steps nor timesteps were provided. Using max number of steps according to model config: {n_steps}."
+                    " For continuous generation, provide max_t as well."
+                )
 
         device = next(self.solver.equation.model.parameters()).device
 
@@ -59,7 +61,8 @@ class Generator:
                 timesteps_tensor,
             )
 
-        logger.info(f"Using timesteps: {timesteps.steps.cpu().numpy()}")
+        if verbose:
+            logger.info(f"Using timesteps: {timesteps.steps.cpu().numpy()}")
 
         n_channels = self.solver.equation.model.n_channels
         img_width = self.solver.equation.model.img_width
@@ -68,7 +71,8 @@ class Generator:
         x_t = torch.randn(n_samples, n_channels, img_width, img_height, device=device)
 
         if variance_exploding:
-            logger.info("Using variance exploding noise for generation.")
+            if verbose:
+                logger.info("Using variance exploding noise for generation.")
             t_start = timesteps[0]
             sigma_start = self.solver.equation.schedules.edm_sigma(t_start).view(
                 -1, 1, 1, 1

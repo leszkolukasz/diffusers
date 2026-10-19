@@ -25,9 +25,6 @@ class GaussKLOptimalSamplingSchedule(SamplingSchedule):
         self.min_t = min_t
 
     def get_timesteps(self, n_steps: int, **kwargs) -> Timestep:
-        if n_steps < 1:
-            raise ValueError(f"n_steps must be at least 1, got {n_steps}")
-
         alpha_min = math.atan(self.min_t / self.c)
         alpha_max = math.atan(self.max_t / self.c)
 
@@ -63,11 +60,12 @@ class GaussKLUBOptimalSamplingSchedule(SamplingSchedule):
         v_min = math.log1p(self.c**2 / self.min_t**2)
         v_max = math.log1p(self.c**2 / self.max_t**2)
 
-        fractions = torch.linspace(0.0, 1.0, n_steps + 1)
+        fractions = torch.linspace(0.0, 1.0, n_steps)
         values = v_min + fractions * (v_max - v_min)
         steps = self.c / torch.sqrt(torch.expm1(values))
         steps[0] = self.min_t
         steps[-1] = self.max_t
         steps = torch.flip(steps, dims=[0])
+        steps = torch.cat([steps, steps.new_zeros(1)])
 
         return Timestep(TimestepConfig(kind="continuous", T=self.T), steps)

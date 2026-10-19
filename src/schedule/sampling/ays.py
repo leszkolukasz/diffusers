@@ -2,6 +2,7 @@ import math
 import os
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from enum import Enum
 
 import numpy as np
 import torch
@@ -21,11 +22,16 @@ STAGE_10 = 10
 STAGE_20 = 20
 STAGE_40 = 40
 
-MIN_T = 1e-5
+MIN_T = 0.5 * 1e-3  # No point going lower than EDM
 MIN_GAP = 1e-5
 
 REL_TOL = 1e-7
 ABS_TOL = 1e-9
+
+
+class CandidateSpacing(str, Enum):
+    linear = "linear"
+    log = "log"
 
 
 @dataclass
@@ -38,6 +44,7 @@ class AYSConfig:
     save_interval_iter: int = 10
     importance_sampling: bool = True
     inverse_transform_sampling_grid_size: int = 2048
+    candidate_spacing: CandidateSpacing = CandidateSpacing.linear
     save_file: str = "generated/ays_timesteps.pth"
 
 
@@ -71,12 +78,22 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         self.timestep_config = TimestepConfig(kind="continuous", T=solver_T)
 
-    def _save_state(self, steps: torch.Tensor, stage: int, current_iter: int):
+    def _save_state(
+        self,
+        steps: torch.Tensor,
+        stage: int,
+        current_iter: int,
+        final_steps: torch.Tensor | None = None,
+    ):
         state = {
             "steps": torch.flip(steps.cpu().to(torch.float32), dims=[0]),
             "stage": stage,
             "current_iter": current_iter,
+            "candidate_spacing": self.config.candidate_spacing.value,
+            "append_zero": getattr(self, "append_zero", False),
         }
+        if final_steps is not None:
+            state["final_steps"] = final_steps.cpu().to(torch.float32)
         os.makedirs(os.path.dirname(self.config.save_file), exist_ok=True)
         torch.save(state, self.config.save_file)
 
@@ -104,6 +121,7 @@ class AYSSamplingSchedule(SamplingSchedule):
             )
             stage = state["stage"]
             start_iter = state["current_iter"]
+            append_zero = bool(state.get("append_zero", False))
             logger.info(f"Resuming Stage: {stage}-step, Iteration: {start_iter}")
         else:
             logger.info("No checkpoint found. Starting fresh AYS optimization.")
@@ -132,6 +150,8 @@ class AYSSamplingSchedule(SamplingSchedule):
             )
             steps[0] = MIN_T
             append_zero = True
+
+        self.append_zero = append_zero
 
         if steps[1].item() < MIN_T:
             raise ValueError(
@@ -173,12 +193,16 @@ class AYSSamplingSchedule(SamplingSchedule):
         ).reverse()
 
         if append_zero:
-            return Timestep(
+            result = Timestep(
                 self.timestep_config,
                 torch.cat(
                     [result.steps, torch.tensor([0.0], device=result.steps.device)]
                 ),
             )
+
+        self._save_state(
+            steps, stage, self.config.max_finetune_iter, final_steps=result.steps
+        )
 
         return result
 
@@ -305,13 +329,26 @@ class AYSSamplingSchedule(SamplingSchedule):
         if t_next - s <= 2 * MIN_GAP:
             return torch.tensor([t], device=self.config.device, dtype=torch.float64)
 
-        interior_candidates = torch.linspace(
-            s,
-            t_next,
-            self.config.n_candidates + 1,
-            device=self.config.device,
-            dtype=torch.float64,
-        )[1:-1]
+        if self.config.candidate_spacing == CandidateSpacing.log:
+            log_lower = math.log(s)
+            log_upper = math.log(t_next)
+            interior_candidates = torch.exp(
+                torch.linspace(
+                    log_lower,
+                    log_upper,
+                    self.config.n_candidates + 1,
+                    device=self.config.device,
+                    dtype=torch.float64,
+                )[1:-1]
+            )
+        else:
+            interior_candidates = torch.linspace(
+                s,
+                t_next,
+                self.config.n_candidates + 1,
+                device=self.config.device,
+                dtype=torch.float64,
+            )[1:-1]
 
         t_tensor = torch.tensor([t], device=self.config.device, dtype=torch.float64)
         candidates = torch.cat([t_tensor, interior_candidates])
