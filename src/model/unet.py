@@ -51,7 +51,7 @@ class PredictorUNet(Predictor):
         )
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
         self.unet = UNet2DModel(
             sample_size=img_width,
             in_channels=n_channels,

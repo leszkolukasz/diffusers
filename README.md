@@ -17,6 +17,10 @@ Project contains three commands:
 
 Each command has its own set of arguments. Use `--help` to see them.
 
+For generation, `--model-id` selects a HuggingFace model; otherwise `--model-path`
+loads a local checkpoint. The noise schedule defaults to the one stored in the
+model metadata and can be overridden with `--schedule`.
+
 ## Examples
 
 ### MNIST generalized diffusion model
@@ -30,7 +34,6 @@ uv run main.py train --dataset mnist --model unet --schedule linear --eta stocha
 This model can be used with both discrete:
 ```
 uv run main.py generate \
-    --model unet \
     --schedule linear \
     --sampling-schedule discrete \
     --eta stochastic \
@@ -42,7 +45,6 @@ uv run main.py generate \
 and differential diffusion:
 ```
 uv run main.py generate \
-    --model unet \
     --schedule linear \
     --sampling-schedule linear \
     --eta stochastic \
@@ -62,7 +64,6 @@ uv run main.py train --dataset mnist --model edm --schedule edm --x-norm
 Generate with:
 ```
 uv run main.py generate \
-    --model edm \
     --schedule edm \
     --sampling-schedule edm \
     --equation probability_flow \
@@ -75,7 +76,6 @@ uv run main.py generate \
 Generate with:
 ```
 uv run main.py generate \
-    --model huggingface \
     --schedule ddpm \
     --sampling-schedule discrete \
     --eta ddpm \

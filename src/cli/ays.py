@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,11 +7,11 @@ import torch
 import typer
 from loguru import logger
 
+from src.common import safe_filename_part
 from src.config import (
     DatasetType,
     EquationType,
     EtaType,
-    ModelType,
     SamplingScheduleType,
     ScheduleType,
 )
@@ -21,7 +22,13 @@ from src.config.presets import (
     get_solver_T,
 )
 from src.dataset import get_dataloader
-from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
+from src.model import (
+    VAE,
+    Predictor,
+    PredictorHuggingface,
+    PredictorMetadata,
+    schedule_from_metadata,
+)
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
@@ -73,22 +80,23 @@ def build_baseline_steps(
 
 @app.command(name="tune", help="Find optimal steps")
 def tune(
-    model_name: ModelType = typer.Option(
-        ModelType.edm, "--model", help="Network architecture"
-    ),
     model_path: str | None = typer.Option(
-        None, "--model-path", help="Path to the local pre-trained weights"
+        None,
+        "--model-path",
+        help="Path to the local pre-trained weights (used when --model-id is not given).",
     ),
     model_id: str | None = typer.Option(
         None,
         "--model-id",
-        help="HuggingFace repository ID (required if model=huggingface)",
+        help="HuggingFace repository ID. If given, a HuggingFace model is loaded.",
     ),
     dataset: DatasetType = typer.Option(
         DatasetType.flowers, "--dataset", help="Target dataset for training"
     ),
-    schedule: ScheduleType = typer.Option(
-        ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
+    schedule: ScheduleType | None = typer.Option(
+        None,
+        "--schedule",
+        help="Signal/Noise schedule. Defaults to the one stored in the model metadata.",
     ),
     eta: EtaType = typer.Option(EtaType.deterministic, "--eta", help="Stochasticity"),
     equation_name: EquationType = typer.Option(
@@ -140,30 +148,29 @@ def tune(
     ),
 ):
     logger.info("Starting the AYS Generation")
-    logger.info(f"Model Architecture: {model_name.value}")
-    logger.info(f"Signal/Noise Schedule: {schedule.value}")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Initial Sampling Schedule: {initial_sampling_schedule.value}")
 
     dataset_config = DATASET_CONFIGS[dataset]
 
-    if model_name == ModelType.huggingface:
-        if not model_id:
-            logger.error(
-                "You must provide '--model-id' when using the huggingface model."
-            )
-            raise typer.Exit(code=1)
+    if model_id:
         logger.info(f"Loading HuggingFace model: {model_id}")
         model = PredictorHuggingface(model_id=model_id).cuda()
     else:
         if not model_path:
-            logger.error(
-                "You must provide '--model-path' when using a local model type."
-            )
+            logger.error("You must provide either '--model-path' or '--model-id'.")
             raise typer.Exit(code=1)
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
         model.load()
+
+    metadata_schedule = schedule_from_metadata(model.metadata)
+    if schedule is None:
+        schedule = metadata_schedule or ScheduleType.edm
+        if metadata_schedule is not None:
+            logger.info(f"Using schedule from model metadata: {schedule.value}")
+
+    logger.info(f"Signal/Noise Schedule: {schedule.value}")
 
     model.eval()
     logger.info(
@@ -175,7 +182,8 @@ def tune(
         and not model.normalize_x
     ):
         logger.error(
-            f"Model '{model_name.value}' is not trained to operate on normalized x. This is required for the '{equation_name.value}' equation."
+            f"Model '{model.__class__.__name__}' is not trained to operate on "
+            f"normalized x. This is required for the '{equation_name.value}' equation."
         )
         raise typer.Exit(code=1)
 
@@ -227,15 +235,27 @@ def tune(
             f"Unsupported initial schedule: {initial_sampling_schedule.value}"
         )
 
-    save_file_path = (
-        checkpoint_path
-        if checkpoint_path
-        else (
-            f"generated/ays_timesteps_{suffix}.pth"
-            if suffix
-            else "generated/ays_timesteps.pth"
-        )
+    model_stem = (
+        Path(model_path).stem
+        if model_path
+        else (model_id or "model").replace("/", "_")
     )
+    parts = [
+        "ays",
+        model_stem,
+        dataset.value,
+        schedule.value,
+        equation_name.value,
+        eta.value,
+        initial_sampling_schedule.value,
+    ]
+    if suffix:
+        parts.append(suffix)
+
+    save_file_path = checkpoint_path or (
+        "generated/" + "_".join(safe_filename_part(part) for part in parts) + ".pth"
+    )
+    logger.info(f"AYS checkpoint will be saved to: {save_file_path}")
     ays_config = AYSConfig(
         max_iter=max_iter,
         max_finetune_iter=max_finetune_iter,
@@ -286,7 +306,9 @@ def plot(
         "--optimal-c",
         help="Standard deviation c for the optimal Gaussian baseline.",
     ),
-    output: str = typer.Option("ays_plot.png", "--output", "-o"),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Output plot path (default: descriptive name)."
+    ),
 ):
     if not os.path.exists(checkpoint_path):
         logger.error(f"Checkpoint file not found: {checkpoint_path}")
@@ -324,6 +346,22 @@ def plot(
         logger.error(str(exc))
         raise typer.Exit(code=1) from exc
 
+    if output is None:
+        checkpoint_stem = safe_filename_part(
+            Path(checkpoint_path).stem, max_length=180
+        )
+        parts = [
+            "ays_plot",
+            checkpoint_stem,
+            "vs",
+            safe_filename_part("-".join(baselines)),
+        ]
+        if SamplingScheduleType.optimal_gaussian in comparison:
+            parts.append(f"c{optimal_c:g}")
+        if SamplingScheduleType.logsnr_linear in comparison:
+            parts.append(f"noise-{schedule.value}")
+        output = "_".join(parts) + ".png"
+
     plt.figure(figsize=(10, 6))
 
     colormap = plt.get_cmap("tab10")
@@ -360,6 +398,7 @@ def plot(
     plt.tight_layout()
 
     plt.savefig(output, dpi=200)
+    logger.success(f"Saved AYS plot to {output}")
 
 
 if __name__ == "__main__":

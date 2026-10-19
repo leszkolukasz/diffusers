@@ -42,7 +42,7 @@ class PredictorEDM(PredictorUNet):
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
     # Input: (batch_size, C, H, W)
     # Assumes x is normalized by s(t) already, i.e. x = x_t / s(t)
@@ -102,7 +102,7 @@ class PredictorEDM2(PredictorEDM):
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}_{'norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
         self.unet = UNetEDM2(
             img_resolution=img_width,

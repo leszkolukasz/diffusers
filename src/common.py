@@ -1,3 +1,4 @@
+import re
 from typing import Any, cast
 
 import torch
@@ -7,6 +8,14 @@ from diffusers import DDPMScheduler, UNet2DModel
 
 def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def safe_filename_part(value: object, max_length: int = 80) -> str:
+    """Turn a value into a filesystem-friendly filename component."""
+    text = str(value).strip().replace("/", "_").replace("\\", "_")
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._-")
+    return text[:max_length] or "unknown"
 
 
 def assert_type[T](val: Any, typ: type[T]) -> T:

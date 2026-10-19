@@ -61,6 +61,11 @@ def train(
     checkpoint_interval: int = typer.Option(
         100, "--checkpoint-interval", help="save a checkpoint every N steps"
     ),
+    use_ema: bool = typer.Option(
+        True,
+        "--ema/--no-ema",
+        help="Whether to use exponential moving average for model weights",
+    ),
     use_amp: bool = typer.Option(
         True,
         "--amp/--no-amp",
@@ -199,6 +204,7 @@ def train(
             checkpoint_interval_steps=checkpoint_interval,
             use_amp=use_amp,
             use_bf16=use_bf16,
+            use_ema=use_ema,
             lr=1e-2 if is_edm2 else 1e-4,
             dataset=dataset.value,
         ),

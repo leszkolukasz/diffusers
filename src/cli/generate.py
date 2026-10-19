@@ -11,7 +11,6 @@ from src.config import (
     DatasetType,
     EquationType,
     EtaType,
-    ModelType,
     SamplingScheduleType,
     ScheduleType,
     SolverType,
@@ -26,7 +25,14 @@ from src.config.presets import (
 )
 from src.dataset import AYSToyDataset, PatternDataset, unnormalize
 from src.generator import Generator
-from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
+from src.model import (
+    VAE,
+    Predictor,
+    PredictorHuggingface,
+    PredictorMetadata,
+    dataset_from_metadata,
+    schedule_from_metadata,
+)
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
@@ -46,17 +52,6 @@ def is_toy_dataset(dataset: DatasetType | None) -> bool:
     return (
         dataset is not None and DATASET_CONFIGS[dataset].dataset_class in TOY_DATASETS
     )
-
-
-def dataset_from_metadata(metadata: dict) -> DatasetType | None:
-    value = metadata.get(PredictorMetadata.Dataset)
-    if not value:
-        return None
-    try:
-        return DatasetType(value)
-    except ValueError:
-        logger.warning(f"Unknown dataset in model metadata: {value}")
-        return None
 
 
 def save_generation_output(
@@ -94,21 +89,20 @@ def save_generation_output(
 
 @app.callback(invoke_without_command=True)
 def generate(
-    model_name: ModelType = typer.Option(
-        ModelType.edm,
-        "--model",
-        help="Network architecture",
-    ),
     model_path: str | None = typer.Option(
-        None, "--model-path", help="Path to the local pre-trained weights"
+        None,
+        "--model-path",
+        help="Path to the local pre-trained weights (used when --model-id is not given).",
     ),
     model_id: str | None = typer.Option(
         None,
         "--model-id",
-        help="HuggingFace repository ID (required if model=huggingface)",
+        help="HuggingFace repository ID. If given, a HuggingFace model is loaded.",
     ),
-    schedule: ScheduleType = typer.Option(
-        ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
+    schedule: ScheduleType | None = typer.Option(
+        None,
+        "--schedule",
+        help="Signal/Noise schedule. Defaults to the one stored in the model metadata.",
     ),
     eta: EtaType = typer.Option(EtaType.deterministic, "--eta", help="Stochasticity"),
     solver_name: SolverType = typer.Option(
@@ -140,30 +134,17 @@ def generate(
         30, "--n-samples", help="Number of images to generate"
     ),
 ):
-    output_path = f"generated/{solver_name.value}_{schedule.value}"
-    os.makedirs(output_path, exist_ok=True)
-
     logger.info("Starting the generation")
-    logger.info(f"Model Architecture: {model_name.value}")
-    logger.info(f"Signal/Noise Schedule: {schedule.value}")
     logger.info(f"Stochasticity (eta): {eta.value}")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Solver: {solver_name.value}")
 
-    if model_name == ModelType.huggingface:
-        if not model_id:
-            logger.error(
-                "You must provide '--model-id' when using the huggingface model."
-            )
-            raise typer.Exit(code=1)
-
+    if model_id:
         logger.info(f"Loading HuggingFace model: {model_id}")
         model = PredictorHuggingface(model_id=model_id).cuda()
     else:
         if not model_path:
-            logger.error(
-                "You must provide '--model-path' when using a local model type."
-            )
+            logger.error("You must provide either '--model-path' or '--model-id'.")
             raise typer.Exit(code=1)
 
         logger.info(f"Loading local model from: {model_path}")
@@ -173,6 +154,17 @@ def generate(
     dataset = dataset_from_metadata(model.metadata)
     if dataset is not None:
         logger.info(f"Model dataset: {dataset.value}")
+
+    metadata_schedule = schedule_from_metadata(model.metadata)
+    if schedule is None:
+        schedule = metadata_schedule or ScheduleType.edm
+        if metadata_schedule is not None:
+            logger.info(f"Using schedule from model metadata: {schedule.value}")
+
+    logger.info(f"Signal/Noise Schedule: {schedule.value}")
+
+    output_path = f"generated/{solver_name.value}_{schedule.value}"
+    os.makedirs(output_path, exist_ok=True)
 
     model.eval()
     logger.info(
@@ -184,7 +176,8 @@ def generate(
         and not model.normalize_x
     ):
         logger.error(
-            f"Model '{model_name.value}' is not trained to operate on normalized x. This is required for the '{equation_name.value}' equation."
+            f"Model '{model.__class__.__name__}' is not trained to operate on "
+            f"normalized x. This is required for the '{equation_name.value}' equation."
         )
         raise typer.Exit(code=1)
 

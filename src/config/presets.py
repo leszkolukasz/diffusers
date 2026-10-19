@@ -133,23 +133,17 @@ def get_solver_T(
     equation_name: EquationType, schedule_name: ScheduleType, predictor_t: int
 ) -> float:
     """Returns maximum time step T solver can be run with."""
-    val = None
     is_discrete = equation_name == EquationType.generalized_discrete
 
-    if (
-        schedule_name == ScheduleType.edm
-        or equation_name == EquationType.generalized_discrete
-    ):
+    if schedule_name == ScheduleType.edm or is_discrete:
         val = predictor_t
-
-    if (
-        equation_name == EquationType.probability_flow
-        or equation_name == EquationType.score_sde
-        or equation_name == EquationType.generalized_differential
+    elif equation_name in (
+        EquationType.probability_flow,
+        EquationType.score_sde,
+        EquationType.generalized_differential,
     ):
         val = 1.0
-
-    if val is None:
+    else:
         raise ValueError(f"Unknown equation config name: {equation_name}")
 
     return int(val) if is_discrete else float(val)

@@ -8,6 +8,7 @@ from loguru import logger
 from matplotlib.colors import LogNorm
 from PIL import Image
 
+from src.common import safe_filename_part
 from src.config import DatasetType
 from src.config.presets import DATASET_CONFIGS
 from src.dataset import load_pattern_density
@@ -97,8 +98,8 @@ def pattern(
         "--pattern-path",
         help="Pattern image. Defaults to the dataset config recorded in the samples file.",
     ),
-    output: str = typer.Option(
-        "pattern_density.png", "--output", "-o", help="Output plot path."
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Output plot path (default: descriptive name)."
     ),
     log_scale: bool = typer.Option(
         True,
@@ -141,6 +142,16 @@ def pattern(
         make_norm(true_density, log_scale, shared_max),
         make_norm(generated_density, log_scale, shared_max),
     )
+
+    if output is None:
+        parts = [
+            "pattern",
+            Path(samples_path).stem,
+            Path(resolved_pattern_path).stem,
+            f"bins{bins}",
+            "log" if log_scale else "lin",
+        ]
+        output = "_".join(safe_filename_part(part) for part in parts) + ".png"
 
     colormap = plt.get_cmap("magma").copy()
     colormap.set_bad("white")
