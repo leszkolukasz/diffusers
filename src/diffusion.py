@@ -32,5 +32,6 @@ def diffuse_from(
     alpha_ratio = alpha_t / alpha_s
 
     variance = sigma_t**2 - (alpha_ratio**2) * (sigma_s**2)
+    assert torch.all(variance >= 0)
 
     return alpha_ratio * x_s + torch.sqrt(variance) * noise

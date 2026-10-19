@@ -4,16 +4,15 @@ import torch
 
 from src.timestep import Timestep, TimestepConfig
 
-EPSILON = 1e-9
+MAX_T_COEFF = 0.95
 
 
 class SamplingSchedule(ABC):
     max_t: float
     T: float
 
-    # If values are close to 1.0 it generates noisy images.
-    def __init__(self, *, max_t: float = 0.95, T: float = 1.0):
-        self.max_t = max_t
+    def __init__(self, *, T: float, max_t: float | None = None):
+        self.max_t = max_t if max_t is not None else MAX_T_COEFF * T
         self.T = T
 
     @abstractmethod

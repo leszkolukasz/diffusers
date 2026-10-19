@@ -51,6 +51,7 @@ class DatasetType(str, Enum):
     flowers = "flowers"
     stl10 = "stl10"
     food101 = "food101"
+    ays_toy = "ays_toy"
 
 
 class ModelType(str, Enum):
@@ -67,6 +68,7 @@ class DatasetConfig:
     img_size: int
     split: str | None = None
     path: str | None = None
+    kwargs: dict | None = None
 
 
 @dataclass

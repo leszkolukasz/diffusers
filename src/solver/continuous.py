@@ -1,5 +1,3 @@
-import math
-
 import torch
 
 from src.common import assert_type
@@ -50,7 +48,7 @@ class EulerMaruyamaSDESolver(ContinuousSolver):
         drift = self.equation.drift(x_t, t)
 
         diff_coeff = self.equation.diffusion_coeff(x_t, t)
-        diffusion = diff_coeff * math.sqrt(-h) * torch.randn_like(x_t)
+        diffusion = diff_coeff * torch.sqrt(-h) * torch.randn_like(x_t)
 
         x_s = x_t + h * drift + diffusion
 

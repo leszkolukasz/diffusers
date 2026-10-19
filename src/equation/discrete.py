@@ -3,7 +3,7 @@ from abc import abstractmethod
 import torch
 
 from src.equation import Equation
-from src.model import PredictionTarget
+from src.model import PredictionTarget, reparametrize
 from src.timestep import Timestep
 
 
@@ -26,8 +26,15 @@ class GeneralizedDiscrete(DiscreteEquation):
         sigma_s = self.schedules.sigma(s).view(-1, 1, 1, 1)
         eta_s = self.schedules.eta(t, s).view(-1, 1, 1, 1)
 
-        assert self.model.target == PredictionTarget.Noise
-        noise_pred = self.model(x_t, timestep=t, schedules=self.schedules)
+        pred = self.model(x_t, timestep=t, schedules=self.schedules)
+        noise_pred = reparametrize(
+            pred=pred,
+            x_t=x_t,
+            t=t,
+            schedules=self.schedules,
+            src=self.model.target,
+            dest=PredictionTarget.Noise,
+        )
 
         mean = (alpha_s / alpha_t) * x_t + (
             sigma_s * torch.sqrt(1 - eta_s**2) - sigma_t * alpha_s / alpha_t

@@ -3,7 +3,6 @@ import wandb
 from loguru import logger
 
 from src import distributed
-from src.common import get_dataloader
 from src.config import (
     DatasetType,
     EtaType,
@@ -17,6 +16,7 @@ from src.config.presets import (
     SCHEDULE_CONFIGS,
     get_timesampler,
 )
+from src.dataset import get_dataloader
 from src.model import VAE
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup

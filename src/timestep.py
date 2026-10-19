@@ -35,7 +35,7 @@ class Timestep:
         adapted_steps = self.steps.float() / float(self.config.T) * float(new_config.T)
 
         if new_config.kind == "discrete":
-            adapted_steps = adapted_steps.long()
+            adapted_steps = adapted_steps.round().long()
 
         return Timestep(config=new_config, steps=adapted_steps)
 

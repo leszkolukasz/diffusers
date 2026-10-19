@@ -54,7 +54,7 @@ class PredictorEDM(PredictorUNet):
             x = x / schedules.s(timestep).view(-1, 1, 1, 1)
 
         timestep = timestep.adapt(self.timestep_config)
-        sigma_t = schedules.edm_sigma(timestep).view(-1, 1, 1, 1)
+        sigma_t = torch.clamp(schedules.edm_sigma(timestep).view(-1, 1, 1, 1), min=1e-9)
 
         sigma_data = 0.5
         c_noise = (1.0 / 4 * torch.log(sigma_t)).view(-1)

@@ -196,3 +196,28 @@ class Predictor(PersistableModule, ABC):
             raise TypeError(f"Loaded model from {file_path} is not a Predictor")
 
         return instance
+
+
+def reparametrize(
+    *,
+    pred: torch.Tensor,
+    x_t: torch.Tensor,
+    t: Timestep,
+    schedules: ScheduleGroup,
+    src: PredictionTarget,
+    dest: PredictionTarget,
+) -> torch.Tensor:
+    if src == dest:
+        return pred
+
+    alpha_t = schedules.alpha(t).view(-1, 1, 1, 1)
+    sigma_t = schedules.sigma(t).view(-1, 1, 1, 1)
+
+    if src == PredictionTarget.Noise and dest == PredictionTarget.x0:
+        return (x_t - sigma_t * pred) / torch.clamp(alpha_t, min=1e-9)
+    elif src == PredictionTarget.x0 and dest == PredictionTarget.Noise:
+        return (x_t - alpha_t * pred) / torch.clamp(sigma_t, min=1e-9)
+    else:
+        raise NotImplementedError(
+            f"Reparametrization from {src} to {dest} not implemented."
+        )

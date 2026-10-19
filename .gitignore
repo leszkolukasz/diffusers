@@ -12,6 +12,7 @@ data
 generated
 models*
 wandb
+scripts/*.py
 
 .ruff_cache/
 

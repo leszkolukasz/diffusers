@@ -14,27 +14,30 @@ from src.config import EquationType
 from src.diffusion import diffuse, diffuse_from
 from src.model import VAE, PredictionTarget, Predictor
 from src.schedule import ScheduleGroup
-from src.schedule.sampling import EPSILON, SamplingSchedule
+from src.schedule.sampling import SamplingSchedule
 from src.timestep import Timestep, TimestepConfig
 
 STAGE_10 = 10
 STAGE_20 = 20
 STAGE_40 = 40
 
-MIN_T = 1e-4
+MIN_T = 1e-5
 MIN_GAP = 1e-5
+
+REL_TOL = 1e-7
+ABS_TOL = 1e-9
 
 
 @dataclass
 class AYSConfig:
-    max_iter: int = 300
-    max_finetune_iter: int = 10
+    max_iter: int = 32
+    max_finetune_iter: int = 16
     device: torch.device = field(default_factory=get_device)
     n_candidates: int = 11
-    n_monte_carlo_iter: int = 1000
+    n_monte_carlo_iter: int = 4096
     save_interval_iter: int = 10
     importance_sampling: bool = True
-    inverse_transform_sampling_grid_size: int = 1000
+    inverse_transform_sampling_grid_size: int = 2048
     save_file: str = "generated/ays_timesteps.pth"
 
 
@@ -70,7 +73,7 @@ class AYSSamplingSchedule(SamplingSchedule):
 
     def _save_state(self, steps: torch.Tensor, stage: int, current_iter: int):
         state = {
-            "steps": torch.flip(steps.cpu(), dims=[0]),
+            "steps": torch.flip(steps.cpu().to(torch.float32), dims=[0]),
             "stage": stage,
             "current_iter": current_iter,
         }
@@ -81,6 +84,7 @@ class AYSSamplingSchedule(SamplingSchedule):
         self, n_steps: int = 40, *, initial_t: Timestep | None = None, **kwargs
     ) -> Timestep:
         assert n_steps >= 10
+        append_zero = False
 
         stage = STAGE_10
         start_iter = 0
@@ -94,22 +98,47 @@ class AYSSamplingSchedule(SamplingSchedule):
                 self.config.save_file,
                 weights_only=False,
             )
-            steps = torch.flip(state["steps"].to(self.config.device), dims=[0])
+            steps = torch.flip(
+                state["steps"].to(device=self.config.device, dtype=torch.float64),
+                dims=[0],
+            )
             stage = state["stage"]
             start_iter = state["current_iter"]
             logger.info(f"Resuming Stage: {stage}-step, Iteration: {start_iter}")
         else:
             logger.info("No checkpoint found. Starting fresh AYS optimization.")
             if initial_t is not None:
-                steps = initial_t.adapt(self.timestep_config).reverse().steps
+                steps = (
+                    initial_t.adapt(self.timestep_config)
+                    .reverse()
+                    .steps.to(device=self.config.device, dtype=torch.float64)
+                )
                 assert len(steps) == 11
             else:
                 logger.warning(
                     f"No initial_t provided. Falling back to linear schedule. Remember to set max_t: {self.max_t}"
                 )
-                steps = torch.linspace(0.0, self.max_t, 11, device=self.config.device)
+                steps = torch.linspace(
+                    MIN_T,
+                    self.max_t,
+                    11,
+                    device=self.config.device,
+                    dtype=torch.float64,
+                )
 
-        assert steps[0] <= steps[-1]
+        if math.isclose(float(steps[0].item()), 0.0, rel_tol=REL_TOL, abs_tol=ABS_TOL):
+            logger.warning(
+                f"Clamping steps[0]={steps[0].item():.6f} to MIN_T={MIN_T} for numerical stability."
+            )
+            steps[0] = MIN_T
+            append_zero = True
+
+        if steps[1].item() < MIN_T:
+            raise ValueError(
+                f"Initial steps[1]={steps[1].item():.6f} is less than MIN_T={MIN_T}. Please provide a valid initial_t."
+            )
+
+        assert all(steps[:-1] < steps[1:])
 
         logger.info(f"Starting with steps: {steps}")
 
@@ -139,9 +168,19 @@ class AYSSamplingSchedule(SamplingSchedule):
 
             logger.info(f"Subdivided steps for next stage ({stage}-step): {steps}")
 
-        return self._interpolate_timesteps(
-            Timestep(self.timestep_config, steps), n_steps
+        result = self._interpolate_timesteps(
+            Timestep(self.timestep_config, steps.to(torch.float32)), n_steps
         ).reverse()
+
+        if append_zero:
+            return Timestep(
+                self.timestep_config,
+                torch.cat(
+                    [result.steps, torch.tensor([0.0], device=result.steps.device)]
+                ),
+            )
+
+        return result
 
     def _optimize(
         self,
@@ -174,9 +213,9 @@ class AYSSamplingSchedule(SamplingSchedule):
                 if skip_even and i % 2 == 0:
                     continue
 
-                s = steps[i - 1].item()
-                t = steps[i].item()
-                t_next = steps[i + 1].item()
+                s = float(steps[i - 1].item())
+                t = float(steps[i].item())
+                t_next = float(steps[i + 1].item())
 
                 candidates = self._get_candidates(s, t, t_next)
                 klub_per_candidate = []
@@ -190,17 +229,24 @@ class AYSSamplingSchedule(SamplingSchedule):
 
                     pbar_candidates = tqdm(candidates, desc="Candidates", leave=False)
                     for cand in pbar_candidates:
+                        cand_val = float(cand.item())
                         pbar_candidates.set_description(
-                            f"t_{i} candidate: {cand.item():.4f}"
+                            f"t_{i} candidate: {cand_val:.4f}"
                         )
 
-                        klub = self._estimate_klub(s, cand.item())
-                        klub += self._estimate_klub(cand.item(), t_next)
+                        klub = self._estimate_klub(s, cand_val)
+                        klub += self._estimate_klub(cand_val, t_next)
                         klub_per_candidate.append(klub)
 
-                    argmin = int(torch.argmin(torch.tensor(klub_per_candidate)).item())
+                    klub_tensor = torch.tensor(klub_per_candidate, dtype=torch.float64)
+                    argmin = int(torch.argmin(klub_tensor).item())
 
-                    if candidates[argmin].item() != t:
+                    if not math.isclose(
+                        float(candidates[argmin].item()),
+                        t,
+                        rel_tol=REL_TOL,
+                        abs_tol=ABS_TOL,
+                    ):
                         steps[i] = candidates[argmin]
                         no_change = False
 
@@ -227,87 +273,88 @@ class AYSSamplingSchedule(SamplingSchedule):
             return Timestep(self.timestep_config, steps)
 
         xs = torch.linspace(0, self.T, len(steps)).cpu().detach().numpy()
-        ys = torch.log(steps).cpu().detach().numpy()
+        ys = torch.log(torch.clamp(steps, min=MIN_T)).cpu().detach().numpy()
 
         new_xs = torch.linspace(0, self.T, n_steps + 1).cpu().detach().numpy()
         new_ys = np.interp(new_xs, xs, ys)
-        new_steps = torch.exp(torch.tensor(new_ys, device=steps.device))
+        new_steps = torch.exp(
+            torch.tensor(new_ys, device=steps.device, dtype=steps.dtype)
+        )
 
         return Timestep(self.timestep_config, new_steps)
 
     def _subdivide(self, steps: torch.Tensor) -> torch.Tensor:
         new_steps = []
 
-        # log t_{2n+1} = 0.5 * (log t_{n} + log t_{n+1})
-
         for i in range(len(steps) - 1):
-            t_start = steps[i].item()
-            t_end = steps[i + 1].item()
+            t_start = float(steps[i].item())
+            t_end = float(steps[i + 1].item())
             new_steps.append(t_start)
 
             if t_start < MIN_T:
                 t_mid = (t_start + t_end) / 2.0
             else:
-                # t_mid = math.exp(0.5 * (math.log(t_start) + math.log(t_end)))
                 t_mid = math.sqrt(t_start * t_end)
 
             new_steps.append(t_mid)
 
-        new_steps.append(steps[-1].item())
-        return torch.tensor(new_steps, device=steps.device)
+        new_steps.append(float(steps[-1].item()))
+        return torch.tensor(new_steps, device=steps.device, dtype=torch.float64)
 
     def _get_candidates(self, s: float, t: float, t_next: float) -> torch.Tensor:
         if t_next - s <= 2 * MIN_GAP:
-            return torch.tensor([t], device=self.config.device)
+            return torch.tensor([t], device=self.config.device, dtype=torch.float64)
+
+        interior_candidates = torch.linspace(
+            s,
+            t_next,
+            self.config.n_candidates + 1,
+            device=self.config.device,
+            dtype=torch.float64,
+        )[1:-1]
+
+        t_tensor = torch.tensor([t], device=self.config.device, dtype=torch.float64)
+        candidates = torch.cat([t_tensor, interior_candidates])
 
         lower_bound = s + MIN_GAP
         upper_bound = t_next - MIN_GAP
-
-        candidates = torch.linspace(
-            lower_bound, upper_bound, self.config.n_candidates - 1
-        )
-        candidates = torch.cat([torch.tensor([t]), candidates])
         candidates = torch.clamp(candidates, min=lower_bound, max=upper_bound)
 
         return candidates.sort().values
 
+    @torch.no_grad()
     def _estimate_klub(self, t_start: float, t_end: float) -> float:
         klub_sum = 0.0
         sample_count = 0
 
-        # t_start = max(t_start, MIN_T)
-        # t_end = max(t_end, t_start + MIN_GAP)
+        t_start = max(t_start, MIN_T)
         assert t_start < t_end
 
-        if t_end - t_start < MIN_GAP:
+        if t_end - t_start < MIN_GAP * (1.0 - ABS_TOL):
             logger.warning(
                 f"Gap between t_start={t_start:.6f} and t_end={t_end:.6f} is too small and may lead to numerical instability."
             )
 
         for X in self._get_data_samples():
-            t_samples = (
-                self._importance_sample(X.size(0), t_start, t_end)
-                if self.config.importance_sampling
-                else (
-                    torch.rand(X.size(0), device=X.device) * (t_end - t_start) + t_start
+            batch_size = X.size(0)
+            if self.config.importance_sampling:
+                t_samples, norm_const = self._importance_sample(
+                    batch_size, t_start, t_end
                 )
-            )
-            timestep_samples = Timestep(self.timestep_config, t_samples)
-            timestep_start = Timestep(
-                self.timestep_config, torch.tensor([t_start], device=X.device)
-            )
+                pi_t = self._importance_sampling_dist(t_samples, t_end)
+                weight = norm_const / pi_t
+            else:
+                u = torch.rand(batch_size, device=X.device, dtype=torch.float64)
+                u = torch.clamp(u, min=MIN_GAP, max=1.0 - MIN_GAP)
+                t_samples = u * (t_end - t_start) + t_start
+                weight = torch.full_like(t_samples, t_end - t_start)
+
+            timestep_samples = Timestep(self.timestep_config, t_samples.to(X.dtype))
             timestep_end = Timestep(
-                self.timestep_config, torch.tensor([t_end], device=X.device)
+                self.timestep_config,
+                torch.full((batch_size,), t_end, device=X.device, dtype=X.dtype),
             )
 
-            sigma_t_start = self.schedules.sigma(timestep_start).view(-1, 1, 1, 1)
-            sigma_t = self.schedules.sigma(timestep_samples).view(-1, 1, 1, 1)
-            sigma_t_end = self.schedules.sigma(timestep_end).view(-1, 1, 1, 1)
-
-            s_t = self.schedules.s(timestep_samples).view(-1, 1, 1, 1)
-            s_t_end = self.schedules.s(timestep_end).view(-1, 1, 1, 1)
-
-            # (batch, channels, height, width)
             X_t, _ = diffuse(
                 x0=X,
                 t=timestep_samples,
@@ -323,88 +370,104 @@ class AYSSamplingSchedule(SamplingSchedule):
             )
 
             pred_t = self.model(
-                X_t / s_t, timestep=timestep_samples, schedules=self.schedules
+                X_t, timestep=timestep_samples, schedules=self.schedules
             )
             pred_t_end = self.model(
-                X_t_end / s_t_end,
-                timestep=timestep_end,
-                schedules=self.schedules,
+                X_t_end, timestep=timestep_end, schedules=self.schedules
             )
 
-            pred_diff_norm = (pred_t_end - pred_t).view(X.size(0), -1).norm(dim=1) ** 2
+            pred_diff_norm = (
+                pred_t_end.to(torch.float64) - pred_t.to(torch.float64)
+            ).view(batch_size, -1).norm(dim=1) ** 2
 
-            importance_factor = (
-                torch.tensor((sigma_t_end - sigma_t_start), device=self.config.device)
-                if not self.config.importance_sampling
-                # Note: sigma_t ** 3 is skipped as it cancels out
-                else 1 / (1 / (sigma_t**2 + 0.5**2) - 1 / (sigma_t_end**2 + 0.5**2))
-            )
+            ts = Timestep(self.timestep_config, t_samples)
 
-            assert torch.all(importance_factor > 0)
-
-            # Note: Formally AYS works only with SDE, but experiments showed that
-            # it works with ODE as well.
             if self.equation_type in [
                 EquationType.score_sde,
                 EquationType.probability_flow,
             ]:
                 assert self.model.target == PredictionTarget.x0
-
-                integral = (
-                    self.schedules.s(timestep_samples)
-                    * self.schedules.edm_sigma.derivative(timestep_samples)
-                    * pred_diff_norm
-                    # Note 1/sigma_t ** 3 is skipped as it cancels out with importance_factor
-                    * importance_factor
+                sigma_edm_t = self.schedules.edm_sigma(ts).to(torch.float64)
+                d_sigma_edm_t = self.schedules.edm_sigma.derivative(ts).to(
+                    torch.float64
                 )
+
+                integrand = (d_sigma_edm_t / (sigma_edm_t**3)) * pred_diff_norm
+                integral = integrand * weight
+
             elif self.equation_type == EquationType.generalized_differential:
                 assert self.model.target == PredictionTarget.Noise
+                d_lambda_t = self.schedules.lambda_.derivative(ts).to(torch.float64)
 
-                integral = (
-                    -0.5
-                    * (
-                        self.schedules.lambda_.derivative(timestep_samples)
-                        * pred_diff_norm
-                    )
-                    * importance_factor
-                )
+                integrand = -0.5 * d_lambda_t * pred_diff_norm
+                integral = integrand * weight
             else:
                 raise ValueError(f"Unsupported equation type: {self.equation_type}")
 
-            klub_sum += integral.sum().item()
-            sample_count += X.size(0)
+            klub_sum += float(integral.sum().item())
+            sample_count += batch_size
 
         return klub_sum / sample_count
 
     # Inverse Transform Sampling
-    def _importance_sample(self, n: int, t_start: float, t_end: float) -> torch.Tensor:
-        c = 0.5
-        t_grid = torch.linspace(
+    def _importance_sample(
+        self, n: int, t_start: float, t_end: float
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        grid_size = self.config.inverse_transform_sampling_grid_size
+        edges = torch.linspace(
             t_start,
             t_end,
-            self.config.inverse_transform_sampling_grid_size,
+            grid_size + 1,
             device=self.config.device,
+            dtype=torch.float64,
         )
 
-        pi_t = (1.0 / t_grid**3) * (1.0 / (t_grid**2 + c**2) - 1.0 / (t_end**2 + c**2))
-        assert torch.all(pi_t >= 0)
+        # We use midpoints to avoid case where linspace edges are outside of [t_start, t_end] range
+        # due to numerical precision issues
+        t_grid = 0.5 * (edges[:-1] + edges[1:])
+        dt = (t_end - t_start) / grid_size
 
-        pi_t = torch.clamp(pi_t, min=EPSILON)
+        pi_t = self._importance_sampling_dist(t_grid, t_end)
+        assert torch.all(pi_t > 0)
+
+        norm_const = pi_t.sum() * dt
 
         cdf = torch.cumsum(pi_t, dim=0)
         cdf = cdf / cdf[-1]
 
-        u = torch.rand(n, device=self.config.device)
-
+        u = torch.rand(n, device=self.config.device, dtype=torch.float64)
         indices = torch.searchsorted(cdf, u)
-        assert 0 <= indices.min() and indices.max() < len(t_grid)
 
-        return t_grid[indices]
+        # indices = torch.clamp(indices, min=0, max=grid_size - 1)
+        assert torch.all(indices >= 0) and torch.all(indices < grid_size)
+
+        return t_grid[indices], norm_const
+
+    # Note: This returns unnormalized distribution
+    def _importance_sampling_dist(
+        self, t_tensor: torch.Tensor, t_end: float, c: float = 0.5
+    ) -> torch.Tensor:
+        ts = Timestep(self.timestep_config, t_tensor)
+        ts_end = Timestep(
+            self.timestep_config,
+            torch.tensor([t_end], device=t_tensor.device, dtype=torch.float64),
+        )
+
+        sigma_edm_t = self.schedules.edm_sigma(ts).to(torch.float64)
+        sigma_edm_end = self.schedules.edm_sigma(ts_end).to(torch.float64)
+        d_sigma_edm_t = self.schedules.edm_sigma.derivative(ts).to(torch.float64)
+
+        # Stable computation of 1/(sigma_t^2 + c^2) - 1/(sigma_end^2 + c^2)
+        num = (sigma_edm_end - sigma_edm_t) * (sigma_edm_end + sigma_edm_t)
+        den = (sigma_edm_t**2 + c**2) * (sigma_edm_end**2 + c**2)
+        diff_inv = torch.clamp(num / den, min=1e-18)
+
+        return (d_sigma_edm_t / (sigma_edm_t**3)) * diff_inv
 
     def _get_data_samples(self) -> Generator[torch.Tensor, None, None]:
         count = 0
         while count < self.config.n_monte_carlo_iter:
-            for batch_idx, (X, _) in enumerate(self.dataloader):
+            for _, (X, _) in enumerate(self.dataloader):
                 X = X.to(self.config.device)
                 yield self.vae.encode(X.half()).float() if self.vae is not None else X
                 count += X.size(0)

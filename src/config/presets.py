@@ -12,6 +12,7 @@ from src.config import (
     ScheduleType,
     SolverType,
 )
+from src.dataset import AYSToyDataset
 from src.equation import (
     Equation,
     GeneralizedDifferential,
@@ -84,13 +85,19 @@ EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
 
 # Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
-    DatasetType.mnist: DatasetConfig(datasets.MNIST, 3, 32),
+    DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
     DatasetType.fashion: DatasetConfig(datasets.FashionMNIST, 1, 32),
     DatasetType.cifar10: DatasetConfig(datasets.CIFAR10, 3, 32),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, path="data/celebA"),
     DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
     DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 128, split="unlabeled"),
     DatasetType.food101: DatasetConfig(datasets.Food101, 3, 128, split="train"),
+    DatasetType.ays_toy: DatasetConfig(
+        AYSToyDataset,
+        1,
+        32,
+        kwargs={"num_samples": 10000},
+    ),
 }
 
 MODEL_CONFIGS: dict[ModelType, type[Predictor]] = {
@@ -112,14 +119,23 @@ def get_solver_T(
     equation_name: EquationType, schedule_name: ScheduleType, predictor_t: int
 ) -> float:
     """Returns maximum time step T solver can be run with."""
+    val = None
+    is_discrete = equation_name == EquationType.generalized_discrete
 
-    if equation_name == EquationType.generalized_discrete:
-        return predictor_t
-    if equation_name == EquationType.generalized_differential:
-        return 1.0
+    if (
+        schedule_name == ScheduleType.edm
+        or equation_name == EquationType.generalized_discrete
+    ):
+        val = predictor_t
+
     if (
         equation_name == EquationType.probability_flow
         or equation_name == EquationType.score_sde
+        or equation_name == EquationType.generalized_differential
     ):
-        return float(predictor_t) if schedule_name == ScheduleType.edm else 1.0
-    raise ValueError(f"Unknown equation config name: {equation_name}")
+        val = 1.0
+
+    if val is None:
+        raise ValueError(f"Unknown equation config name: {equation_name}")
+
+    return int(val) if is_discrete else float(val)

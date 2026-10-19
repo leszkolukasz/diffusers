@@ -6,7 +6,6 @@ import torchvision
 import typer
 from loguru import logger
 
-from src.common import unnormalize
 from src.config import (
     EquationType,
     EtaType,
@@ -22,6 +21,7 @@ from src.config.presets import (
     SOLVER_CONFIGS,
     get_solver_T,
 )
+from src.dataset import unnormalize
 from src.generator import Generator
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
@@ -175,12 +175,11 @@ def generate(
                 EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
             )
         case SamplingScheduleType.linear:
-            generator_kwargs["timesteps"] = (
-                LinearSamplingSchedule(T=solver_T)  # , max_t = ...
-                .get_timesteps(n_steps=n_steps)
-                .cuda()
-            )
-            logger.warning(f"Remember to set correct max_t: {solver_T}")
+            scheduler = LinearSamplingSchedule(T=solver_T)
+            generator_kwargs["timesteps"] = scheduler.get_timesteps(  # , max_t = ...
+                n_steps=n_steps
+            ).cuda()
+            logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
         case SamplingScheduleType.discrete:
             logger.info("n_steps is ignored. Using all steps supported by model.")
             generator_kwargs["skip_last_step"] = True

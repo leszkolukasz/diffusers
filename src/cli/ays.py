@@ -5,7 +5,6 @@ import torch
 import typer
 from loguru import logger
 
-from src.common import get_dataloader
 from src.config import (
     DatasetType,
     EquationType,
@@ -20,6 +19,7 @@ from src.config.presets import (
     SCHEDULE_CONFIGS,
     get_solver_T,
 )
+from src.dataset import get_dataloader
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import EDMSamplingSchedule, LinearSamplingSchedule
