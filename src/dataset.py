@@ -1,5 +1,6 @@
 import os
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -137,6 +138,27 @@ class AYSToyDataset(Dataset):
         return self.data[index], torch.tensor(0)
 
 
+def load_pattern_density(pattern_path: str | Path, invert: bool = True) -> np.ndarray:
+    if not os.path.exists(pattern_path):
+        raise FileNotFoundError(f"Pattern image not found: {pattern_path}")
+
+    img = Image.open(pattern_path).convert("L")
+    img_arr = np.array(img, dtype=np.float32)
+
+    if invert:
+        img_arr = 255.0 - img_arr
+
+    img_arr[img_arr < 10.0] = 0.0
+
+    total_density = img_arr.sum()
+    if total_density <= 0:
+        raise ValueError(
+            f"Pattern image '{pattern_path}' has no dark pixels to sample from."
+        )
+
+    return img_arr / total_density
+
+
 class PatternDataset(Dataset):
     pattern_path: str
     num_samples: int
@@ -155,25 +177,13 @@ class PatternDataset(Dataset):
     ):
         super().__init__()
         self.num_samples = num_samples
-        self.pattern_path = pattern_path
+        self.pattern_path = str(pattern_path)
 
         self.rng = np.random.default_rng(seed)
 
-        if not os.path.exists(pattern_path):
-            raise FileNotFoundError(f"Pattern image not found: {pattern_path}")
-
-        img = Image.open(pattern_path).convert("L")
-        img_arr = np.array(img, dtype=np.float32)
-
-        if invert:
-            img_arr = 255.0 - img_arr
-
-        img_arr[img_arr < 10.0] = 0.0
-
-        total_density = img_arr.sum()
-
-        self.pdf = (img_arr / total_density).flatten()
-        self.h, self.w = img_arr.shape
+        density = load_pattern_density(self.pattern_path, invert=invert)
+        self.h, self.w = density.shape
+        self.pdf = density.flatten()
 
         self.data = self._generate_points()
 

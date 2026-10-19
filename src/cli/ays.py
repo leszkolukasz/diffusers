@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import typer
 from loguru import logger
@@ -33,6 +34,35 @@ from src.schedule.sampling.ays import (
 )
 
 app = typer.Typer(help="Align Your Steps")
+
+
+def build_baseline_steps(
+    comparison: list[SamplingScheduleType],
+    *,
+    schedules: ScheduleGroup | None = None,
+    n_steps: int,
+    max_t: float,
+) -> dict[str, np.ndarray]:
+    baselines: dict[str, np.ndarray] = {}
+
+    for name in comparison:
+        if name == SamplingScheduleType.edm:
+            schedule = EDMSamplingSchedule(T=max_t)
+        elif name == SamplingScheduleType.linear:
+            schedule = LinearSamplingSchedule(T=max_t, max_t=max_t)
+        elif name == SamplingScheduleType.logsnr_linear:
+            if schedules is None:
+                raise ValueError("schedules are required for logsnr_linear")
+            schedule = LinearLogSNRSamplingSchedule(
+                schedules=schedules, T=max_t, max_t=max_t
+            )
+        else:
+            raise ValueError(f"Unsupported baseline comparison: {name.value}")
+
+        steps = schedule.get_timesteps(n_steps=n_steps).steps.cpu().numpy()[::-1]
+        baselines[name.value] = steps
+
+    return baselines
 
 
 @app.command(name="tune", help="Find optimal steps")
@@ -224,10 +254,15 @@ def tune(
 @app.command(name="plot", help="Plot generated AYS schedule")
 def plot(
     checkpoint_path: str = typer.Argument(..., help="Path to checkpoint"),
-    compare_with: SamplingScheduleType = typer.Option(
-        SamplingScheduleType.edm,
+    compare_with: list[SamplingScheduleType] = typer.Option(
+        [],
         "--compare",
-        help="Baseline to compare",
+        help="Baseline(s) to compare. Repeat the option for multiple baselines.",
+    ),
+    schedule: ScheduleType = typer.Option(
+        ScheduleType.edm,
+        "--schedule",
+        help="Noise schedule used to build the logSNR baseline.",
     ),
     output: str = typer.Option("ays_plot.png", "--output", "-o"),
 ):
@@ -246,29 +281,40 @@ def plot(
         f"Found AYS schedule for stage {stage} with {n_steps} steps (T={max_t:.2f})"
     )
 
-    if compare_with == SamplingScheduleType.edm:
-        baseline_sched = EDMSamplingSchedule(T=max_t)
-    elif compare_with == SamplingScheduleType.linear:
-        baseline_sched = LinearSamplingSchedule(T=max_t, max_t=max_t)
-    else:
-        logger.error(f"Unsupported baseline comparison: {compare_with.value}")
-        raise typer.Exit(code=1)
+    comparison = compare_with or [SamplingScheduleType.edm]
 
-    baseline_steps = (
-        baseline_sched.get_timesteps(n_steps=n_steps).steps.cpu().numpy()[::-1]
-    )
+    schedules = None
+    if SamplingScheduleType.logsnr_linear in comparison:
+        alpha = SCHEDULE_CONFIGS[schedule].alpha_schedule_factory()
+        sigma = SCHEDULE_CONFIGS[schedule].sigma_schedule_factory()
+        eta = ETA_CONFIGS[EtaType.deterministic](alpha, sigma)
+        schedules = ScheduleGroup(alpha, sigma, eta)
+
+    try:
+        baselines = build_baseline_steps(
+            comparison,
+            schedules=schedules,
+            n_steps=n_steps,
+            max_t=max_t,
+        )
+    except ValueError as exc:
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
 
     plt.figure(figsize=(10, 6))
 
-    plt.plot(
-        range(len(baseline_steps)),
-        baseline_steps,
-        marker="s",
-        linestyle="--",
-        color="gray",
-        alpha=0.7,
-        label=f"Baseline ({compare_with.value.upper()})",
-    )
+    colormap = plt.get_cmap("tab10")
+    markers = ["s", "^", "d", "v", "P", "X", "*"]
+    for index, (name, steps) in enumerate(baselines.items()):
+        plt.plot(
+            range(len(steps)),
+            steps,
+            marker=markers[index % len(markers)],
+            linestyle="--",
+            color=colormap((index + 1) % 10),
+            alpha=0.8,
+            label=f"Baseline ({name.upper()})",
+        )
 
     plt.plot(
         range(len(ays_steps)),
@@ -280,7 +326,7 @@ def plot(
         label=f"AYS (Stage {stage})",
     )
 
-    plt.title(f"AYS vs {compare_with.value.upper()}")
+    plt.title("AYS vs " + ", ".join(name.upper() for name in baselines))
     plt.xlabel("Step Index")
     plt.ylabel("Timestep (t)")
 

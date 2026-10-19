@@ -12,7 +12,7 @@ from src.config import (
     ScheduleType,
     SolverType,
 )
-from src.dataset import AYSToyDataset
+from src.dataset import AYSToyDataset, PatternDataset
 from src.equation import (
     Equation,
     GeneralizedDifferential,
@@ -101,7 +101,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         kwargs={"num_samples": N_SAMPLES},
     ),
     DatasetType.pattern_spiral: DatasetConfig(
-        AYSToyDataset,
+        PatternDataset,
         2,
         1,
         kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral.png"},

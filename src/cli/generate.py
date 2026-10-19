@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -7,6 +8,7 @@ import typer
 from loguru import logger
 
 from src.config import (
+    DatasetType,
     EquationType,
     EtaType,
     ModelType,
@@ -15,13 +17,14 @@ from src.config import (
     SolverType,
 )
 from src.config.presets import (
+    DATASET_CONFIGS,
     EQUATION_CONFIGS,
     ETA_CONFIGS,
     SCHEDULE_CONFIGS,
     SOLVER_CONFIGS,
     get_solver_T,
 )
-from src.dataset import unnormalize
+from src.dataset import AYSToyDataset, PatternDataset, unnormalize
 from src.generator import Generator
 from src.model import VAE, Predictor, PredictorHuggingface, PredictorMetadata
 from src.schedule import ScheduleGroup
@@ -34,6 +37,47 @@ from src.schedule.sampling import (
 )
 
 app = typer.Typer(help="Generate images")
+
+TOY_DATASETS = (AYSToyDataset, PatternDataset)
+
+
+def is_toy_dataset(dataset: DatasetType | None) -> bool:
+    return (
+        dataset is not None and DATASET_CONFIGS[dataset].dataset_class in TOY_DATASETS
+    )
+
+
+def save_generation_output(
+    generated: torch.Tensor,
+    output_path: str | Path,
+    dataset: DatasetType | None,
+    metadata: dict[str, Any] | None = None,
+) -> Path:
+    out = Path(output_path)
+    out.mkdir(parents=True, exist_ok=True)
+
+    is_pattern_shape = generated.ndim == 4 and generated.shape[1:] == (2, 1, 1)
+
+    if is_toy_dataset(dataset) or is_pattern_shape:
+        name = f"samples_{dataset.value}.pth" if dataset else "samples.pth"
+        save_path = out / name
+        torch.save(
+            {
+                "samples": generated.detach().cpu(),
+                "dataset": dataset.value if dataset is not None else None,
+                **(metadata or {}),
+            },
+            save_path,
+        )
+        return save_path
+
+    for index in range(generated.shape[0]):
+        torchvision.utils.save_image(
+            unnormalize(generated[index]),
+            out / f"{index + 1}.png",
+        )
+
+    return out
 
 
 @app.callback(invoke_without_command=True)
@@ -50,6 +94,11 @@ def generate(
         None,
         "--model-id",
         help="HuggingFace repository ID (required if model=huggingface)",
+    ),
+    dataset: DatasetType | None = typer.Option(
+        None,
+        "--dataset",
+        help="Dataset used for training. Toy datasets are saved as tensors.",
     ),
     schedule: ScheduleType = typer.Option(
         ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
@@ -210,9 +259,16 @@ def generate(
             **generator_kwargs,
         )
 
-    for i in range(n_samples):
-        img = unnormalize(generated[i])
-        torchvision.utils.save_image(
-            img,
-            f"{output_path}/{i + 1}.png",
-        )
+    saved = save_generation_output(
+        generated,
+        output_path,
+        dataset,
+        metadata={
+            "n_samples": n_samples,
+            "model_path": model_path,
+            "solver": solver_name.value,
+            "schedule": schedule.value,
+            "sampling_schedule": sampling_schedule.value,
+        },
+    )
+    logger.success(f"Saved generation output to {saved}")
