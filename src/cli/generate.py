@@ -36,9 +36,10 @@ from src.model import (
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
+    GaussKLOptimalSamplingSchedule,
+    GaussKLUBOptimalSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
-    OptimalGaussianSamplingSchedule,
     Timestep,
     TimestepConfig,
 )
@@ -124,7 +125,7 @@ def generate(
     optimal_c: float = typer.Option(
         0.5,
         "--optimal-c",
-        help="Standard deviation c for the optimal Gaussian sampling schedule.",
+        help="Standard deviation c for the Gaussian optimal schedules.",
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -245,14 +246,22 @@ def generate(
                 .get_timesteps(n_steps=n_steps)
                 .cuda()
             )
-        case SamplingScheduleType.optimal_gaussian:
+        case (
+            SamplingScheduleType.gauss_kl_optimal
+            | SamplingScheduleType.gauss_klub_optimal
+        ) as optimal_name:
             if schedule != ScheduleType.edm:
                 logger.warning(
-                    "The optimal Gaussian schedule assumes s(t)=1 and sigma(t)=t "
+                    "The Gaussian optimal schedules assume s(t)=1 and sigma(t)=t "
                     "(EDM schedule)."
                 )
+            optimal_cls = (
+                GaussKLOptimalSamplingSchedule
+                if optimal_name == SamplingScheduleType.gauss_kl_optimal
+                else GaussKLUBOptimalSamplingSchedule
+            )
             generator_kwargs["timesteps"] = (
-                OptimalGaussianSamplingSchedule(T=solver_T, c=optimal_c)
+                optimal_cls(T=solver_T, c=optimal_c)
                 .get_timesteps(n_steps=n_steps)
                 .cuda()
             )

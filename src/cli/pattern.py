@@ -146,10 +146,8 @@ def pattern(
     if output is None:
         parts = [
             "pattern",
-            Path(samples_path).stem,
-            Path(resolved_pattern_path).stem,
+            dataset.value if dataset is not None else "unknown",
             f"bins{bins}",
-            "log" if log_scale else "lin",
         ]
         output = "_".join(safe_filename_part(part) for part in parts) + ".png"
 

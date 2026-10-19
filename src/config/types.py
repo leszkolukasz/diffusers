@@ -28,7 +28,8 @@ class SamplingScheduleType(str, Enum):
     linear = "linear"
     edm = "edm"
     logsnr_linear = "logsnr_linear"
-    optimal_gaussian = "optimal_gaussian"
+    gauss_kl_optimal = "gauss_kl_optimal"
+    gauss_klub_optimal = "gauss_klub_optimal"
     discrete = "discrete"
     custom = "custom"
 

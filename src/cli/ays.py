@@ -27,14 +27,16 @@ from src.model import (
     Predictor,
     PredictorHuggingface,
     PredictorMetadata,
+    dataset_from_metadata,
     schedule_from_metadata,
 )
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
+    GaussKLOptimalSamplingSchedule,
+    GaussKLUBOptimalSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
-    OptimalGaussianSamplingSchedule,
 )
 from src.schedule.sampling.ays import (
     AYSConfig,
@@ -65,10 +67,16 @@ def build_baseline_steps(
             schedule = LinearLogSNRSamplingSchedule(
                 schedules=schedules, T=max_t, max_t=max_t
             )
-        elif name == SamplingScheduleType.optimal_gaussian:
-            schedule = OptimalGaussianSamplingSchedule(
-                T=max_t, max_t=max_t, c=optimal_c
+        elif name in (
+            SamplingScheduleType.gauss_kl_optimal,
+            SamplingScheduleType.gauss_klub_optimal,
+        ):
+            optimal_cls = (
+                GaussKLOptimalSamplingSchedule
+                if name == SamplingScheduleType.gauss_kl_optimal
+                else GaussKLUBOptimalSamplingSchedule
             )
+            schedule = optimal_cls(T=max_t, max_t=max_t, c=optimal_c)
         else:
             raise ValueError(f"Unsupported baseline comparison: {name.value}")
 
@@ -90,8 +98,10 @@ def tune(
         "--model-id",
         help="HuggingFace repository ID. If given, a HuggingFace model is loaded.",
     ),
-    dataset: DatasetType = typer.Option(
-        DatasetType.flowers, "--dataset", help="Target dataset for training"
+    dataset: DatasetType | None = typer.Option(
+        None,
+        "--dataset",
+        help="Target dataset. Defaults to the one stored in the model metadata.",
     ),
     schedule: ScheduleType | None = typer.Option(
         None,
@@ -111,23 +121,23 @@ def tune(
     optimal_c: float = typer.Option(
         0.5,
         "--optimal-c",
-        help="Standard deviation c for the optimal Gaussian schedule.",
+        help="Standard deviation c for the Gaussian optimal schedules.",
     ),
     checkpoint_path: str | None = typer.Option(
         None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
     ),
     suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),
     max_iter: int = typer.Option(
-        300, "--max-iter", help="Max iterations for 10-step stage"
+        32, "--max-iter", help="Max iterations for 10-step stage"
     ),
     max_finetune_iter: int = typer.Option(
-        10, "--max-finetune-iter", help="Max fine tune iterations for 20/40-step stage"
+        16, "--max-finetune-iter", help="Max fine tune iterations for 20/40-step stage"
     ),
     n_candidates: int = typer.Option(
         11, "--n-candidates", help="Number of timestep candidates"
     ),
     n_monte_carlo_iter: int = typer.Option(
-        1000, "--n-mc-iter", help="Number of Monte Carlo steps"
+        4096, "--n-mc-iter", help="Number of Monte Carlo steps"
     ),
     save_interval_iter: int = typer.Option(
         1, "--save-interval", help="Checkpoint frequency"
@@ -138,7 +148,7 @@ def tune(
         help="Use importance sampling for AYS",
     ),
     its_grid_size: int = typer.Option(
-        1000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
+        2000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -150,8 +160,6 @@ def tune(
     logger.info("Starting the AYS Generation")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Initial Sampling Schedule: {initial_sampling_schedule.value}")
-
-    dataset_config = DATASET_CONFIGS[dataset]
 
     if model_id:
         logger.info(f"Loading HuggingFace model: {model_id}")
@@ -171,6 +179,18 @@ def tune(
             logger.info(f"Using schedule from model metadata: {schedule.value}")
 
     logger.info(f"Signal/Noise Schedule: {schedule.value}")
+
+    metadata_dataset = dataset_from_metadata(model.metadata)
+    if dataset is None:
+        if metadata_dataset is None:
+            logger.warning(
+                "Model metadata has no dataset; falling back to default dataset. "
+            )
+        dataset = metadata_dataset or DatasetType.flowers
+        if metadata_dataset is not None:
+            logger.info(f"Using dataset from model metadata: {dataset.value}")
+
+    dataset_config = DATASET_CONFIGS[dataset]
 
     model.eval()
     logger.info(
@@ -224,11 +244,17 @@ def tune(
             .get_timesteps(n_steps=10)
             .cuda()
         )
-    elif initial_sampling_schedule == SamplingScheduleType.optimal_gaussian:
+    elif initial_sampling_schedule in (
+        SamplingScheduleType.gauss_kl_optimal,
+        SamplingScheduleType.gauss_klub_optimal,
+    ):
+        optimal_cls = (
+            GaussKLOptimalSamplingSchedule
+            if initial_sampling_schedule == SamplingScheduleType.gauss_kl_optimal
+            else GaussKLUBOptimalSamplingSchedule
+        )
         initial_t = (
-            OptimalGaussianSamplingSchedule(T=solver_T, c=optimal_c)
-            .get_timesteps(n_steps=10)
-            .cuda()
+            optimal_cls(T=solver_T, c=optimal_c).get_timesteps(n_steps=10).cuda()
         )
     else:
         raise ValueError(
@@ -236,17 +262,11 @@ def tune(
         )
 
     model_stem = (
-        Path(model_path).stem
-        if model_path
-        else (model_id or "model").replace("/", "_")
+        Path(model_path).stem if model_path else (model_id or "model").replace("/", "_")
     )
     parts = [
         "ays",
         model_stem,
-        dataset.value,
-        schedule.value,
-        equation_name.value,
-        eta.value,
         initial_sampling_schedule.value,
     ]
     if suffix:
@@ -304,7 +324,7 @@ def plot(
     optimal_c: float = typer.Option(
         0.5,
         "--optimal-c",
-        help="Standard deviation c for the optimal Gaussian baseline.",
+        help="Standard deviation c for the Gaussian optimal baselines.",
     ),
     output: str | None = typer.Option(
         None, "--output", "-o", help="Output plot path (default: descriptive name)."
@@ -347,16 +367,17 @@ def plot(
         raise typer.Exit(code=1) from exc
 
     if output is None:
-        checkpoint_stem = safe_filename_part(
-            Path(checkpoint_path).stem, max_length=180
-        )
+        checkpoint_stem = safe_filename_part(Path(checkpoint_path).stem, max_length=180)
         parts = [
             "ays_plot",
             checkpoint_stem,
             "vs",
             safe_filename_part("-".join(baselines)),
         ]
-        if SamplingScheduleType.optimal_gaussian in comparison:
+        if (
+            SamplingScheduleType.gauss_kl_optimal in comparison
+            or SamplingScheduleType.gauss_klub_optimal in comparison
+        ):
             parts.append(f"c{optimal_c:g}")
         if SamplingScheduleType.logsnr_linear in comparison:
             parts.append(f"noise-{schedule.value}")
@@ -391,7 +412,7 @@ def plot(
     plt.xlabel("Step Index")
     plt.ylabel("Timestep (t)")
 
-    # plt.yscale("symlog", linthresh=1e-3)
+    plt.yscale("symlog", linthresh=1e-3)
 
     plt.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.legend()
