@@ -70,6 +70,15 @@ class PredictorUNet(Predictor):
         timestep = timestep.adapt(self.timestep_config)
         return self.unet(x, timestep=timestep.steps).sample
 
+    def loss_weight(
+        self, t: Timestep, schedules: ScheduleGroup | None = None
+    ) -> torch.Tensor:
+        if self.target == PredictionTarget.Score:
+            if schedules is None:
+                raise ValueError("schedules must be provided for score loss weight")
+            return schedules.edm_sigma(t) ** 2
+        return super().loss_weight(t, schedules)
+
     def save(self, **extra_metadata):
         super().save(model_size=self.model_size.value, **extra_metadata)
 

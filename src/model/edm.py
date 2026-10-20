@@ -80,6 +80,12 @@ class PredictorEDM(PredictorUNet):
         return self.unet(x, timestep=timestep).sample
 
     def loss_weight(self, t: Timestep, schedules: ScheduleGroup) -> torch.Tensor:
+        if self.target == PredictionTarget.Score:
+            # From NCSN
+            return schedules.edm_sigma(t) ** 2
+        if self.target == PredictionTarget.Noise:
+            return super().loss_weight(t, schedules)
+
         sigma_t = schedules.edm_sigma(t)
         sigma_data = 0.5
 

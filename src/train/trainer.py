@@ -23,6 +23,8 @@ from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 from src.train import ExpMovingAverageWrapper, WarmupCosineLR
 
+EPSILON = 1e-3
+
 
 class DatasetProtocol(Protocol):
     def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]: ...
@@ -190,6 +192,9 @@ class Trainer:
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:
                         t = torch.rand(X.size(0), device=X.device) * solver_T
+                        t = t.clamp(
+                            min=EPSILON * solver_T, max=(1 - EPSILON) * solver_T
+                        )
                     case TimeSampler.UNIFORM_DISCRETE:
                         t = torch.randint(
                             1, int(solver_T) + 1, (X.size(0),), device=X.device
@@ -199,7 +204,7 @@ class Trainer:
                         P_std = 1.2
                         t = torch.randn(X.size(0), device=X.device) * P_std + P_mean
                         t = torch.exp(t)
-                        t = torch.clamp(t, max=solver_T)
+                        t = torch.clamp(t, min=EPSILON, max=solver_T)
 
                 t = Timestep(self.raw_model.timestep_config, t)
 
@@ -216,6 +221,8 @@ class Trainer:
                     elif self.raw_model.target == PredictionTarget.x0:
                         target = X
                     elif self.raw_model.target == PredictionTarget.Score:
+                        # The score model is trained in normalized coordinates
+                        # u = x_t / alpha (hence --x-norm): score = -noise / edm_sigma.
                         sigma_t = self.schedules.edm_sigma(t).view(-1, 1, 1, 1)
                         target = -noise / sigma_t
                     else:
