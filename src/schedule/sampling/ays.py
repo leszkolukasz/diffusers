@@ -78,22 +78,18 @@ class AYSSamplingSchedule(SamplingSchedule):
 
         self.timestep_config = TimestepConfig(kind="continuous", T=solver_T)
 
-    def _save_state(
-        self,
-        steps: torch.Tensor,
-        stage: int,
-        current_iter: int,
-        final_steps: torch.Tensor | None = None,
-    ):
+    def _save_state(self, steps: torch.Tensor, stage: int, current_iter: int):
+        saved_steps = torch.flip(steps.cpu().to(torch.float32), dims=[0])
+        if getattr(self, "append_zero", False):
+            saved_steps = torch.cat([saved_steps, saved_steps.new_zeros(1)])
+
         state = {
-            "steps": torch.flip(steps.cpu().to(torch.float32), dims=[0]),
+            "steps": saved_steps,
             "stage": stage,
             "current_iter": current_iter,
             "candidate_spacing": self.config.candidate_spacing.value,
             "append_zero": getattr(self, "append_zero", False),
         }
-        if final_steps is not None:
-            state["final_steps"] = final_steps.cpu().to(torch.float32)
         os.makedirs(os.path.dirname(self.config.save_file), exist_ok=True)
         torch.save(state, self.config.save_file)
 
@@ -119,9 +115,19 @@ class AYSSamplingSchedule(SamplingSchedule):
                 state["steps"].to(device=self.config.device, dtype=torch.float64),
                 dims=[0],
             )
+            append_zero = bool(state.get("append_zero", False))
+            if append_zero:
+                if math.isclose(
+                    float(steps[0].item()), 0.0, rel_tol=REL_TOL, abs_tol=ABS_TOL
+                ):
+                    steps = steps[1:]
+                else:
+                    logger.warning(
+                        "Checkpoint has append_zero=True but does not end with 0; "
+                        "continuing without removing a terminal zero."
+                    )
             stage = state["stage"]
             start_iter = state["current_iter"]
-            append_zero = bool(state.get("append_zero", False))
             logger.info(f"Resuming Stage: {stage}-step, Iteration: {start_iter}")
         else:
             logger.info("No checkpoint found. Starting fresh AYS optimization.")
@@ -200,9 +206,7 @@ class AYSSamplingSchedule(SamplingSchedule):
                 ),
             )
 
-        self._save_state(
-            steps, stage, self.config.max_finetune_iter, final_steps=result.steps
-        )
+        self._save_state(steps, stage, self.config.max_finetune_iter)
 
         return result
 

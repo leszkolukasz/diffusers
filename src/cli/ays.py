@@ -381,8 +381,7 @@ def plot(
         raise typer.Exit(code=1)
 
     state = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
-    steps = state.get("final_steps", state["steps"])
-    ays_steps = steps.numpy()[::-1]
+    ays_steps = state["steps"].numpy()[::-1]
 
     n_steps = len(ays_steps) - 1
     max_t = ays_steps[-1]
