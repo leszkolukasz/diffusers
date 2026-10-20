@@ -1,0 +1,20 @@
+This repository contains code under different licenses.
+
+Original project code
+---------------------
+Copyright (c) 2026 Łukasz Leszko
+Licensed under the MIT License. See LICENSE.
+
+Third-party code
+----------------
+src/model/nvidia/
+  Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+  4.0 International License (CC BY-NC-SA 4.0).
+  See src/model/nvidia/LICENSE.
+  This directory is NOT covered by the MIT license.
+
+CC BY-NC-SA 4.0 does not permit commercial use. As long as this repository
+contains src/model/nvidia/, the repository as a whole must be treated as
+non-commercial. For commercial use, remove src/model/nvidia/ (and the EDM2
+model integration) or obtain a separate license from NVIDIA.

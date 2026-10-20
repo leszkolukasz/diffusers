@@ -2,6 +2,7 @@
 name = "diffusion-model"
 version = "0.1.0"
 description = "Add your description here"
+license = { text = "MIT (original code); CC BY-NC-SA 4.0 (src/model/nvidia)" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

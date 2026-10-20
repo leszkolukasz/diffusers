@@ -128,3 +128,13 @@ denotes that model was trained on range [0, T].
 ## Troubleshooting
 
 If Wandb reaches intialization timeout try to set `--run-id` to some unique value.
+
+## License
+
+The original code in this repository is licensed under the MIT License; see
+[LICENSE](LICENSE).
+
+The vendored NVIDIA EDM2 implementation in [`src/model/nvidia/`](src/model/nvidia/)
+is licensed separately under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License
+(CC BY-NC-SA 4.0); see [`src/model/nvidia/LICENSE`](src/model/nvidia/LICENSE).
