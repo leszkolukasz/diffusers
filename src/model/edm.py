@@ -2,7 +2,7 @@ from typing import override
 
 import torch
 
-from src.model import PredictionTarget, PredictorUNet
+from src.model import PredictionTarget, PredictorUNet, reparametrize
 from src.model.nvidia.edm2 import UNet as UNetEDM2
 from src.model.presets import EDM2_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
@@ -19,11 +19,10 @@ class PredictorEDM(PredictorUNet):
         T: int,
         normalize_x: bool,
         model_size: ModelSize = ModelSize.SMALL,
+        target: PredictionTarget | str = PredictionTarget.x0,
         suffix: str | None = None,
         **kwargs,
     ):
-        kwargs.pop("target", None)  # Needed for load_from_file to work
-
         model_size = (
             ModelSize.from_value(model_size)
             if isinstance(model_size, str)
@@ -38,7 +37,7 @@ class PredictorEDM(PredictorUNet):
             normalize_x=normalize_x,
             model_size=model_size,
             suffix=suffix,
-            target=PredictionTarget.x0,
+            target=target,
             **kwargs,
         )
 
@@ -62,8 +61,20 @@ class PredictorEDM(PredictorUNet):
         c_out = sigma_t * sigma_data / torch.sqrt(sigma_t**2 + sigma_data**2)
         c_skip = sigma_data**2 / (sigma_t**2 + sigma_data**2)
         pred = self._predict(c_in * x, c_noise)
+        x0 = c_skip * x + c_out * pred
 
-        return c_skip * x + c_out * pred
+        if self.target == PredictionTarget.x0:
+            return x0
+
+        x_t = x * schedules.s(timestep).view(-1, 1, 1, 1)
+        return reparametrize(
+            pred=x0,
+            x_t=x_t,
+            t=timestep,
+            schedules=schedules,
+            src=PredictionTarget.x0,
+            dest=self.target,
+        )
 
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         return self.unet(x, timestep=timestep).sample

@@ -10,6 +10,8 @@ from torch import nn
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep, TimestepConfig
 
+EPSILON = 1e-9
+
 
 class PredictorMetadata(StrEnum):
     AlphaSchedule = "alpha_schedule"
@@ -214,11 +216,24 @@ def reparametrize(
     alpha_t = schedules.alpha(t).view(-1, 1, 1, 1)
     sigma_t = schedules.sigma(t).view(-1, 1, 1, 1)
 
-    if src == PredictionTarget.Noise and dest == PredictionTarget.x0:
-        return (x_t - sigma_t * pred) / torch.clamp(alpha_t, min=1e-9)
-    elif src == PredictionTarget.x0 and dest == PredictionTarget.Noise:
-        return (x_t - alpha_t * pred) / torch.clamp(sigma_t, min=1e-9)
-    else:
-        raise NotImplementedError(
-            f"Reparametrization from {src} to {dest} not implemented."
-        )
+    if dest == PredictionTarget.Noise:
+        if src == PredictionTarget.x0:
+            return (x_t - alpha_t * pred) / torch.clamp(sigma_t, min=EPSILON)
+        elif src == PredictionTarget.Score:
+            return -sigma_t * pred
+
+    elif dest == PredictionTarget.x0:
+        if src == PredictionTarget.Noise:
+            return (x_t - sigma_t * pred) / torch.clamp(alpha_t, min=EPSILON)
+        elif src == PredictionTarget.Score:
+            return (x_t + (sigma_t**2) * pred) / torch.clamp(alpha_t, min=EPSILON)
+
+    elif dest == PredictionTarget.Score:
+        if src == PredictionTarget.Noise:
+            return -pred / torch.clamp(sigma_t, min=EPSILON)
+        elif src == PredictionTarget.x0:
+            return (alpha_t * pred - x_t) / torch.clamp(sigma_t**2, min=EPSILON)
+
+    raise NotImplementedError(
+        f"Reparametrization from {src} to {dest} not implemented."
+    )

@@ -17,7 +17,7 @@ from src.config.presets import (
     get_timesampler,
 )
 from src.dataset import get_dataloader
-from src.model import VAE
+from src.model import VAE, PredictionTarget
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.train import Trainer, TrainingConfig
@@ -47,6 +47,11 @@ def train(
     ),
     schedule: ScheduleType = typer.Option(
         ScheduleType.edm, "--schedule", help="Signal/Noise schedule"
+    ),
+    target: PredictionTarget | None = typer.Option(
+        None,
+        "--target",
+        help="Prediction target",
     ),
     eta: EtaType = typer.Option(
         EtaType.deterministic,
@@ -98,6 +103,9 @@ def train(
     logger.info(f"Model size: {model_size.value}")
     logger.info(f"Dataset: {dataset.value}")
     logger.info(f"Signal/Noise schedule: {schedule.value}")
+    logger.info(
+        f"Prediction target: {target.value if target is not None else 'model default'}"
+    )
     logger.info(f"Stochasticity (eta): {eta.value}")
     logger.info(f"Batch Size: {batch_size}")
     logger.info(f"Predictor T: {predictor_t}")
@@ -138,6 +146,7 @@ def train(
                 "dataset": dataset.value,
                 "schedule": schedule.value,
                 "eta": eta.value,
+                "target": target.value if target is not None else "model_default",
             },
         )
 
@@ -169,6 +178,12 @@ def train(
             logger.info("1x1 inputs require the 'point' model size; using it.")
         model_size = ModelSize.POINT
 
+    if target == PredictionTarget.Score and not use_x_norm:
+        logger.error(
+            "Score prediction requires input normalization. Use --x-norm to enable it."
+        )
+        raise typer.Exit(code=1)
+
     if use_x_norm:
         logger.info("Enabling input normalization")
     else:
@@ -176,18 +191,23 @@ def train(
             "x normalization is disabled. This means this model will not work with ScoreSDE and PF-ODE"
         )
 
-    model = model_class(
-        T=predictor_t,
-        model_size=model_size,
-        n_channels=n_channels,
-        img_width=img_width,
-        img_height=img_height,
-        normalize_x=use_x_norm,
-        suffix=f"_{dataset.value}_{model_suffix}"
+    model_kwargs = {
+        "T": predictor_t,
+        "model_size": model_size,
+        "n_channels": n_channels,
+        "img_width": img_width,
+        "img_height": img_height,
+        "normalize_x": use_x_norm,
+        "suffix": f"_{dataset.value}_{model_suffix}"
         if model_suffix
         else f"_{dataset.value}",
-    ).cuda()
+    }
+    if target is not None:
+        model_kwargs["target"] = target
 
+    model = model_class(**model_kwargs).cuda()
+
+    logger.info(f"Model target: {model.target.value}")
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     model.try_load()

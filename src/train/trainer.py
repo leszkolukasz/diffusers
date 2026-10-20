@@ -211,9 +211,17 @@ class Trainer:
                     X_noisy, noise = diffuse(X, t, self.schedules)
                     pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
 
-                    target = (
-                        noise if self.raw_model.target == PredictionTarget.Noise else X
-                    )
+                    if self.raw_model.target == PredictionTarget.Noise:
+                        target = noise
+                    elif self.raw_model.target == PredictionTarget.x0:
+                        target = X
+                    elif self.raw_model.target == PredictionTarget.Score:
+                        sigma_t = self.schedules.edm_sigma(t).view(-1, 1, 1, 1)
+                        target = -noise / sigma_t
+                    else:
+                        raise NotImplementedError(
+                            f"Training target {self.raw_model.target} is not implemented."
+                        )
 
                     weight = self.raw_model.loss_weight(t, self.schedules).view(
                         -1, 1, 1, 1
