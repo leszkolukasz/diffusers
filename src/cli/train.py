@@ -234,7 +234,12 @@ def train(
     logger.info(f"Model target: {model.target.value}")
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    model.try_load()
+    if model.try_load_raw():
+        logger.info(f"Loaded raw model for resume: models/{model.raw_file_name}")
+    elif model.try_load():
+        logger.warning(
+            "Loaded an EMA/inference checkpoint. Raw resume weights were not found."
+        )
 
     is_edm2 = model_name == ModelType.edm2
 

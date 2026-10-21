@@ -29,15 +29,28 @@ class PersistableModule(nn.Module):
         super().__init__(*args, **kwargs)
         self.metadata = {}
 
+    @property
+    def raw_file_name(self) -> str:
+        return f"raw_{self.file_name}"
+
     def save(self, **extra_metadata):
+        self.save_to(f"models/{self.file_name}", **extra_metadata)
+
+    def save_to(self, path: str | os.PathLike, **extra_metadata):
         checkpoint = {
             "state_dict": self.state_dict(),
             "config": {"type": self.__class__.__name__, **extra_metadata},
         }
-        torch.save(checkpoint, f"models/{self.file_name}")
+        parent = os.path.dirname(os.fspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        torch.save(checkpoint, path)
 
     def load(self):
-        checkpoint = torch.load(f"models/{self.file_name}", weights_only=False)
+        self.load_from_path(f"models/{self.file_name}")
+
+    def load_from_path(self, path: str | os.PathLike):
+        checkpoint = torch.load(path, weights_only=False)
         self.load_state_dict(checkpoint["state_dict"])
         self.metadata = checkpoint.get("config", {})
 
@@ -50,6 +63,13 @@ class PersistableModule(nn.Module):
     def try_load(self) -> bool:
         if os.path.exists(f"models/{self.file_name}"):
             self.load()
+            return True
+        return False
+
+    def try_load_raw(self) -> bool:
+        path = f"models/{self.raw_file_name}"
+        if os.path.exists(path):
+            self.load_from_path(path)
             return True
         return False
 

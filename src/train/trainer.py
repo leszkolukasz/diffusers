@@ -110,7 +110,12 @@ class Trainer:
             self.config.checkpoint_dir, f"trainer_{self.raw_model.file_name}"
         )
 
-    def save_checkpoint(self, model: nn.Module | Predictor):
+    def save_checkpoint(
+        self,
+        model: nn.Module | Predictor,
+        *,
+        raw_model: Predictor | None = None,
+    ):
         metadata = {
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
@@ -120,6 +125,12 @@ class Trainer:
         }
 
         model.save(**metadata)
+
+        if raw_model is not None:
+            raw_path = os.path.join(
+                self.config.checkpoint_dir, raw_model.raw_file_name
+            )
+            raw_model.save_to(raw_path, **metadata)
 
         trainer_state = {
             "epoch": self.current_epoch,
@@ -305,7 +316,8 @@ class Trainer:
                     self.save_checkpoint(
                         ema_wrapper.ema_model
                         if ema_wrapper is not None
-                        else self.raw_model
+                        else self.raw_model,
+                        raw_model=self.raw_model if ema_wrapper is not None else None,
                     )
 
                 self.total_steps_executed += 1
@@ -313,7 +325,8 @@ class Trainer:
 
         if get_rank() == 0:
             self.save_checkpoint(
-                ema_wrapper.ema_model if ema_wrapper is not None else self.raw_model
+                ema_wrapper.ema_model if ema_wrapper is not None else self.raw_model,
+                raw_model=self.raw_model if ema_wrapper is not None else None,
             )
 
     def _log_metrics(
