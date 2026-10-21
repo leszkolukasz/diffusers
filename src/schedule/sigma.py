@@ -9,6 +9,9 @@ from src.timestep import Timestep, TimestepConfig
 class SigmaSchedule(ABC):
     timestep_config: TimestepConfig = TimestepConfig(kind="continuous", T=1.0)
 
+    def __init__(self, **kwargs):
+        pass
+
     @abstractmethod
     def __call__(self, t: Timestep) -> torch.Tensor:
         pass
@@ -20,7 +23,7 @@ class SigmaSchedule(ABC):
 class LinearSigmaSchedule(SigmaSchedule):
     exploding: bool = False
 
-    def __init__(self, exploding: bool = False):
+    def __init__(self, exploding: bool = False, **kwargs):
         self.exploding = exploding
 
     def __call__(self, t: Timestep):

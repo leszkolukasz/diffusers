@@ -51,7 +51,7 @@ class GeneralizedDifferential(DifferentialEquation):
         return sigma_t * eta_t_inf
 
 
-class ProbabilityFlow(GeneralizedDifferential):
+class ProbabilityFlow(DifferentialEquation):
     def drift(self, x_t: torch.Tensor, t: Timestep) -> torch.Tensor:
         edm_sigma_t = self.schedules.edm_sigma(t).view(-1, 1, 1, 1)
         d_edm_sigma_t = self.schedules.edm_sigma.derivative(t).view(-1, 1, 1, 1)

@@ -2,8 +2,11 @@ import torch
 
 from src.common import assert_type
 from src.equation import DifferentialEquation
+from src.model import PredictionTarget, reparametrize
 from src.solver import Solver
 from src.timestep import Timestep
+
+EPSILON = 1e-9
 
 
 class ContinuousSolver(Solver):
@@ -53,3 +56,29 @@ class EulerMaruyamaSDESolver(ContinuousSolver):
         x_s = x_t + h * drift + diffusion
 
         return x_s
+
+
+# I still have no idea why it is called Stochastic-DDIM solver
+# Note: This solves SDE for s(t) = 1, sigma_EDM(t) = t analitically,
+# so it does not really need Equation class.
+class StochasticDDIMSolver(ContinuousSolver):
+    def _step(self, x_t: torch.Tensor, t: Timestep, s: Timestep):
+        schedules = self.equation.schedules
+        sigma_t = schedules.edm_sigma(t).view(-1, 1, 1, 1)
+        sigma_s = schedules.edm_sigma(s).view(-1, 1, 1, 1)
+        ratio = (sigma_s / sigma_t.clamp_min(EPSILON)) ** 2
+
+        pred = self.equation.model(x_t, timestep=t, schedules=schedules)
+        x0 = reparametrize(
+            pred=pred,
+            x_t=x_t,
+            t=t,
+            schedules=schedules,
+            src=self.equation.model.target,
+            dest=PredictionTarget.x0,
+        )
+
+        diff_coeff = sigma_s * torch.sqrt(1 - ratio)
+        diffusion = diff_coeff * torch.randn_like(x_t)
+
+        return ratio * x_t + (1 - ratio) * x0 + diffusion

@@ -41,6 +41,7 @@ from src.solver import (
     EulerODESolver,
     HeunODESolver,
     Solver,
+    StochasticDDIMSolver,
 )
 from src.train import TimeSampler
 
@@ -49,6 +50,7 @@ SOLVER_CONFIGS: dict[SolverType, type[Solver]] = {
     SolverType.euler: EulerODESolver,
     SolverType.heun: HeunODESolver,
     SolverType.euler_maruyama: EulerMaruyamaSDESolver,
+    SolverType.stochastic_ddim: StochasticDDIMSolver,
 }
 
 SCHEDULE_CONFIGS: dict[ScheduleType, ScheduleConfig] = {

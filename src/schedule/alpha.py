@@ -9,6 +9,9 @@ from src.timestep import Timestep, TimestepConfig
 class AlphaSchedule(ABC):
     timestep_config: TimestepConfig = TimestepConfig(kind="continuous", T=1.0)
 
+    def __init__(self, **kwargs):
+        pass
+
     @abstractmethod
     def __call__(self, t: Timestep) -> torch.Tensor:
         pass
@@ -18,7 +21,7 @@ class AlphaSchedule(ABC):
 
 
 class ConstantAlphaSchedule(AlphaSchedule):
-    def __init__(self, alpha: float):
+    def __init__(self, alpha: float, **kwargs):
         self.alpha = alpha
 
     def __call__(self, t: Timestep):

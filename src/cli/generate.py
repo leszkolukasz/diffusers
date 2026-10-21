@@ -173,6 +173,12 @@ def generate(
 
     logger.info(f"Signal/Noise Schedule: {schedule.value}")
 
+    if solver_name == SolverType.stochastic_ddim and schedule != ScheduleType.edm:
+        logger.error("Stochastic DDIM requires the EDM schedule.")
+        raise typer.Exit(code=1)
+    else:
+        logger.info("Stochastic-DDIM solver ignores the passed equation")
+
     output_path = output_dir or f"generated/{solver_name.value}_{schedule.value}"
     os.makedirs(output_path, exist_ok=True)
 

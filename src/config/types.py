@@ -15,6 +15,7 @@ class SolverType(str, Enum):
     euler = "euler"
     heun = "heun"
     euler_maruyama = "euler_maruyama"
+    stochastic_ddim = "stochastic_ddim"
 
 
 class ScheduleType(str, Enum):
