@@ -71,6 +71,16 @@ def train(
         "--ema/--no-ema",
         help="Whether to use exponential moving average for model weights",
     ),
+    ema_halflife_ratio: float = typer.Option(
+        0.05,
+        "--ema-halflife-ratio",
+        help="EMA half-life as a fraction of the total training steps",
+    ),
+    ema_warmup_ratio: float = typer.Option(
+        0.05,
+        "--ema-warmup-ratio",
+        help="EMA warmup as a fraction of the steps seen so far (0 disables)",
+    ),
     use_amp: bool = typer.Option(
         True,
         "--amp/--no-amp",
@@ -112,6 +122,18 @@ def train(
     logger.info(f"Number of epochs: {n_epochs}")
     logger.info(f"Timesampler: {timesampler_config.value}")
 
+    if use_ema:
+        if not 0.0 < ema_halflife_ratio <= 1.0:
+            logger.error("--ema-halflife-ratio must be in (0, 1].")
+            raise typer.Exit(code=1)
+        if not 0.0 <= ema_warmup_ratio <= 1.0:
+            logger.error("--ema-warmup-ratio must be in [0, 1].")
+            raise typer.Exit(code=1)
+        logger.info(
+            f"EMA halflife ratio: {ema_halflife_ratio}, "
+            f"warmup ratio: {ema_warmup_ratio}"
+        )
+
     schedule_kwargs = {}
     if model_id:
         schedule_kwargs["model_id"] = model_id
@@ -147,6 +169,8 @@ def train(
                 "schedule": schedule.value,
                 "eta": eta.value,
                 "target": target.value if target is not None else "model_default",
+                "ema_halflife_ratio": ema_halflife_ratio,
+                "ema_warmup_ratio": ema_warmup_ratio,
             },
         )
 
@@ -225,6 +249,8 @@ def train(
             use_amp=use_amp,
             use_bf16=use_bf16,
             use_ema=use_ema,
+            ema_halflife_ratio=ema_halflife_ratio,
+            ema_warmup_ratio=ema_warmup_ratio,
             lr=1e-2 if is_edm2 else 1e-4,
             dataset=dataset.value,
         ),

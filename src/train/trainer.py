@@ -44,6 +44,8 @@ class TrainingConfig:
     checkpoint_interval_steps: int = 100
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
     use_ema: bool = True  # Exponential Moving Average
+    ema_halflife_ratio: float = 0.05
+    ema_warmup_ratio: float = 0.05
     ema_update_every_n_steps: int = 10
     use_amp: bool = True  # Automatic Mixed Precision
     use_bf16: bool = False
@@ -155,8 +157,19 @@ class Trainer:
 
         ema_wrapper = None
         if self.config.use_ema:
-            ema_wrapper = ExpMovingAverageWrapper(self.raw_model)
-            logger.info("Using Exponential Moving Average (EMA)")
+            ema_wrapper = ExpMovingAverageWrapper(
+                self.raw_model,
+                total_steps=total_training_steps,
+                halflife_ratio=self.config.ema_halflife_ratio,
+                warmup_ratio=self.config.ema_warmup_ratio,
+                update_every=self.config.ema_update_every_n_steps,
+            )
+            logger.info(
+                "Using Exponential Moving Average (EMA) with "
+                f"halflife_ratio={self.config.ema_halflife_ratio}, "
+                f"warmup_ratio={self.config.ema_warmup_ratio}, "
+                f"update_every={self.config.ema_update_every_n_steps} steps"
+            )
 
         if self.config.use_amp:
             logger.info(
@@ -258,7 +271,7 @@ class Trainer:
                     and self.total_steps_executed % self.config.ema_update_every_n_steps
                     == 0
                 ):
-                    ema_wrapper.update(self.raw_model)
+                    ema_wrapper.update(self.raw_model, step=self.total_steps_executed)
 
                 with torch.no_grad():
                     loss_to_log = loss.detach().clone()

@@ -96,7 +96,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         datasets.CIFAR10, 3, 32, kwargs={"train": False}
     ),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, path="data/celebA"),
-    DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 128),
+    DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 64),
     DatasetType.stl10: DatasetConfig(datasets.STL10, 3, 128, split="unlabeled"),
     DatasetType.food101: DatasetConfig(datasets.Food101, 3, 128, split="train"),
     DatasetType.ays_toy: DatasetConfig(
