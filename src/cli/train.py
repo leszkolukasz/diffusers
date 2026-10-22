@@ -157,7 +157,7 @@ def train(
     if distributed.get_rank() == 0 and distributed.is_distributed():
         run_identifier = f"{model_name.value}_{schedule.value}_{dataset.value}"
         if run_id:
-            run_identifier += f"{run_id}_"
+            run_identifier = f"{run_id}_" + run_identifier
 
         wandb.init(
             project="prosem",
