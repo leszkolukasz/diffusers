@@ -26,6 +26,9 @@ echo "MASTER_ADDR="$MASTER_ADDR
 export WANDB_API_KEY="..."
 
 cd $HOME/diffusers
+
 apptainer exec ./scripts/container.sif uv sync
 
-srun apptainer exec --nv ./scripts/container.sif uv run main.py train "$@"
+srun --cpu-bind=none \
+    apptainer exec --nv ./scripts/container.sif \
+    uv run --no-sync main.py train "$@"

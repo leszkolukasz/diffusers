@@ -79,7 +79,8 @@ class PredictorUNet(Predictor):
         if self.target == PredictionTarget.Score:
             if schedules is None:
                 raise ValueError("schedules must be provided for score loss weight")
-            return schedules.edm_sigma(t) ** 2
+            # Without clamping loss will explode for some schedules.
+            return torch.clamp(schedules.edm_sigma(t) ** 2, max=1.0)
         return super().loss_weight(t, schedules)
 
     def save(self, **extra_metadata):
