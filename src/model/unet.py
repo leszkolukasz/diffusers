@@ -30,6 +30,7 @@ class PredictorUNet(Predictor):
         T: int,
         normalize_x: bool,
         model_size: ModelSize | str = ModelSize.SMALL,
+        prefix: str | None = None,
         suffix: str | None = None,
         target: PredictionTarget | str = PredictionTarget.Noise,
         **_kwargs,
@@ -40,6 +41,7 @@ class PredictorUNet(Predictor):
         self.n_channels = n_channels
         self.img_width = img_width
         self.img_height = img_height
+        self.prefix = prefix.strip("_") if prefix else ""
         self.normalize_x = normalize_x
         self.target = (
             PredictionTarget.from_value(target) if isinstance(target, str) else target
@@ -51,7 +53,8 @@ class PredictorUNet(Predictor):
         )
 
         self.timestep_config = TimestepConfig(kind="continuous", T=T)
-        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
+        prefix_str = f"{self.prefix}_" if self.prefix else ""
+        self.file_name = f"{prefix_str}{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_unet_{self.model_size.value}{suffix if suffix is not None else ''}.pth"
         self.unet = UNet2DModel(
             sample_size=img_width,
             in_channels=n_channels,

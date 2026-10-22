@@ -39,6 +39,9 @@ def train(
     model_size: ModelSize = typer.Option(
         ModelSize.SMALL, "--model-size", help="Model size (number of parameters)"
     ),
+    model_prefix: str = typer.Option(
+        "", "--model-prefix", help="Prefix to prepend to model checkpoints"
+    ),
     model_suffix: str = typer.Option(
         "", "--model-suffix", help="Suffix to append to model checkpoints"
     ),
@@ -169,6 +172,7 @@ def train(
                 "schedule": schedule.value,
                 "eta": eta.value,
                 "target": target.value if target is not None else "model_default",
+                "model_prefix": model_prefix,
                 "ema_halflife_ratio": ema_halflife_ratio,
                 "ema_warmup_ratio": ema_warmup_ratio,
             },
@@ -222,6 +226,7 @@ def train(
         "img_width": img_width,
         "img_height": img_height,
         "normalize_x": use_x_norm,
+        "prefix": model_prefix or None,
         "suffix": f"_{dataset.value}_{model_suffix}"
         if model_suffix
         else f"_{dataset.value}",

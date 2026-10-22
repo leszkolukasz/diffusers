@@ -20,6 +20,7 @@ class PredictorEDM(PredictorUNet):
         normalize_x: bool,
         model_size: ModelSize = ModelSize.SMALL,
         target: PredictionTarget | str = PredictionTarget.x0,
+        prefix: str | None = None,
         suffix: str | None = None,
         **kwargs,
     ):
@@ -36,12 +37,13 @@ class PredictorEDM(PredictorUNet):
             T=T,
             normalize_x=normalize_x,
             model_size=model_size,
+            prefix=prefix,
             suffix=suffix,
             target=target,
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.prefix + '_' if self.prefix else ''}{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
     # Input: (batch_size, C, H, W)
     # Assumes x is normalized by s(t) already, i.e. x = x_t / s(t)
@@ -100,6 +102,7 @@ class PredictorEDM2(PredictorEDM):
         img_height: int,
         T: int,
         model_size: ModelSize = ModelSize.SMALL,
+        prefix: str | None = None,
         suffix: str | None = None,
         **kwargs,
     ):
@@ -115,11 +118,12 @@ class PredictorEDM2(PredictorEDM):
             img_height=img_height,
             T=T,
             model_size=model_size,
+            prefix=prefix,
             suffix=suffix,
             **kwargs,
         )
 
-        self.file_name = f"{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
+        self.file_name = f"{self.prefix + '_' if self.prefix else ''}{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
         self.unet = UNetEDM2(
             img_resolution=img_width,
