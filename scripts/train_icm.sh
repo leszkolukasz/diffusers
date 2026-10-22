@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 #SBATCH --job-name=prosem
-#SBATCH --account=g102-2480
+#SBATCH --account=g107-2933
 #SBATCH --qos=normal
 #SBATCH --time=10:00:00
-#SBATCH --ntasks=4
+#SBATCH --ntasks=1
 #SBATCH --mem=48G
-#SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
 #SBATCH --constraint=volta32G
 #SBATCH --output=output.txt
 
