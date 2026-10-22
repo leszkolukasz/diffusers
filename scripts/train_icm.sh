@@ -5,13 +5,15 @@
 #SBATCH --qos=normal
 #SBATCH --time=10:00:00
 #SBATCH --ntasks=1
-#SBATCH --mem=48G
+#SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=volta32G
+#SBATCH --constraint=volta16G
 #SBATCH --output=output.txt
 
-export MASTER_PORT=12340
+JOB_KEY=${SLURM_JOB_ID:-$$}
+TASK_KEY=${SLURM_ARRAY_TASK_ID:-0}
+export MASTER_PORT=$((20000 + (JOB_KEY + TASK_KEY * 1000) % 40000))
 export WORLD_SIZE=${SLURM_NPROCS}
 
 echo "NODELIST="${SLURM_NODELIST}
