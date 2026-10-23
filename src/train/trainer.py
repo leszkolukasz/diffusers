@@ -27,9 +27,7 @@ from src.train.checkpoint import snapshot_stem, snapshot_steps
 EPSILON = 1e-3
 
 
-def should_log_metrics(
-    *, rank: int, distributed: bool, enable_wandb: bool
-) -> bool:
+def should_log_metrics(*, rank: int, distributed: bool, enable_wandb: bool) -> bool:
     return rank == 0 and (distributed or enable_wandb)
 
 
@@ -119,13 +117,13 @@ class Trainer:
             self.config.checkpoint_dir, f"trainer_{self.raw_model.file_name}"
         )
 
-    def _checkpoint_paths(self, snapshot_name: str | None = None) -> tuple[str, str, str]:
+    def _checkpoint_paths(
+        self, snapshot_name: str | None = None
+    ) -> tuple[str, str, str]:
         if snapshot_name is None:
             return (
                 os.path.join(self.config.checkpoint_dir, self.raw_model.file_name),
-                os.path.join(
-                    self.config.checkpoint_dir, self.raw_model.raw_file_name
-                ),
+                os.path.join(self.config.checkpoint_dir, self.raw_model.raw_file_name),
                 self._get_trainer_state_path(),
             )
 
@@ -137,13 +135,16 @@ class Trainer:
 
     def save_checkpoint(
         self,
-        model: nn.Module | Predictor,
+        model: Predictor,
         *,
         raw_model: Predictor | None = None,
         snapshot_name: str | None = None,
         snapshot_epoch: int | None = None,
         snapshot_step: int | None = None,
     ):
+        if not isinstance(model, Predictor):
+            raise TypeError("Checkpoint model must be a Predictor")
+
         metadata = {
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
             PredictorMetadata.SigmaSchedule: self.schedules.sigma.__class__.__name__,
@@ -151,18 +152,15 @@ class Trainer:
             PredictorMetadata.VAE: self.vae.model_id if self.vae is not None else None,
             PredictorMetadata.Dataset: self.config.dataset,
         }
-        if hasattr(model, "model_size"):
-            metadata["model_size"] = model.model_size.value
-
         if snapshot_name is not None:
             metadata["epoch"] = snapshot_epoch
             metadata["step"] = snapshot_step
 
         model_path, raw_path, trainer_path = self._checkpoint_paths(snapshot_name)
-        model.save_to(model_path, **metadata)
+        model.save(model_path, **metadata)
 
         if raw_model is not None:
-            raw_model.save_to(raw_path, **metadata)
+            raw_model.save(raw_path, **metadata)
 
         trainer_state = {
             "epoch": self.current_epoch,

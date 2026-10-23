@@ -83,8 +83,10 @@ class PredictorUNet(Predictor):
             return torch.clamp(schedules.edm_sigma(t) ** 2, max=1.0)
         return super().loss_weight(t, schedules)
 
-    def save(self, **extra_metadata):
-        super().save(model_size=self.model_size.value, **extra_metadata)
+    def save(self, path=None, **extra_metadata):
+        super().save(
+            path=path, model_size=self.model_size.value, **extra_metadata
+        )
 
     def load(self):
         super().load()
@@ -141,5 +143,5 @@ class PredictorHuggingface(PredictorUNet):
     def load(self):
         raise NotImplementedError("Not supported")
 
-    def save(self, **extra_metadata):
+    def save(self, path=None, **extra_metadata):
         raise NotImplementedError("Not supported")

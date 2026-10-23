@@ -33,8 +33,10 @@ class PersistableModule(nn.Module):
     def raw_file_name(self) -> str:
         return f"raw_{self.file_name}"
 
-    def save(self, **extra_metadata):
-        self.save_to(f"models/{self.file_name}", **extra_metadata)
+    def save(
+        self, path: str | os.PathLike | None = None, **extra_metadata
+    ):
+        self.save_to(path or f"models/{self.file_name}", **extra_metadata)
 
     def save_to(self, path: str | os.PathLike, **extra_metadata):
         checkpoint = {
@@ -174,8 +176,11 @@ class Predictor(PersistableModule, ABC):
     ) -> torch.Tensor:
         return torch.tensor(1.0, device=t.device)
 
-    def save(self, **extra_metadata):
+    def save(
+        self, path: str | os.PathLike | None = None, **extra_metadata
+    ):
         super().save(
+            path=path,
             T=self.timestep_config.T,
             n_channels=self.n_channels,
             img_width=self.img_width,
