@@ -22,3 +22,4 @@ scripts/*.py
 
 *.txt
 *.pth
+.envrc

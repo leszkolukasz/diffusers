@@ -119,6 +119,11 @@ def train(
     n_workers: int = typer.Option(
         1, "--n-workers", help="Number of dataloader workers"
     ),
+    enable_wandb: bool = typer.Option(
+        False,
+        "--wandb/--no-wandb",
+        help="Whether to enable WandB logging (automatic if running in a distributed environment)",
+    ),
 ):
     dataset_config = DATASET_CONFIGS[dataset]
     model_class = MODEL_CONFIGS[model_name]
@@ -172,7 +177,7 @@ def train(
         eta_schedule=eta_schedule,
     )
 
-    if distributed.get_rank() == 0 and distributed.is_distributed():
+    if enable_wandb or (distributed.get_rank() == 0 and distributed.is_distributed()):
         run_identifier = f"{model_name.value}_{schedule.value}_{dataset.value}"
         if run_id:
             run_identifier = f"{run_id}_" + run_identifier
