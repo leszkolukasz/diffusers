@@ -165,7 +165,6 @@ def generate(
 
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
-        model.load()
 
     dataset = dataset_from_metadata(model.metadata)
     if dataset is not None:

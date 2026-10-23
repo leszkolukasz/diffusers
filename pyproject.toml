@@ -8,6 +8,7 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.12.0",
     "clean-fid>=0.1.35",
+    "clip>=0.2.0",
     "diffusers>=0.35.2",
     "gdown>=5.2.1",
     "kaleido>=1.1.0",

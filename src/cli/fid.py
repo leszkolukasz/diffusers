@@ -29,7 +29,7 @@ def fid(
         help="Use this directory instead of materializing the dataset.",
     ),
     metric: FIDMetric = typer.Option(
-        FIDMetric.fid,
+        FIDMetric.all,
         "--metric",
         help="Metric to compute.",
     ),
