@@ -1,3 +1,5 @@
+import os
+
 import typer
 import wandb
 from loguru import logger
@@ -21,6 +23,7 @@ from src.model import VAE, PredictionTarget
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
 from src.train import Trainer, TrainingConfig
+from src.train.checkpoint import resolve_snapshot_paths
 
 app = typer.Typer(help="Train model")
 
@@ -68,6 +71,16 @@ def train(
     n_epochs: int = typer.Option(1000, "--n-epochs", help="Number of epochs"),
     checkpoint_interval: int = typer.Option(
         100, "--checkpoint-interval", help="save a checkpoint every N steps"
+    ),
+    checkpoint_snapshot_percent: float = typer.Option(
+        5.0,
+        "--checkpoint-snapshot-percent",
+        help="Save full snapshots every N% of training steps (0 disables).",
+    ),
+    resume_from: str | None = typer.Option(
+        None,
+        "--resume-from",
+        help="Resume from a specific checkpoint/snapshot model, raw model, or trainer file.",
     ),
     use_ema: bool = typer.Option(
         True,
@@ -124,6 +137,11 @@ def train(
     logger.info(f"Predictor T: {predictor_t}")
     logger.info(f"Number of epochs: {n_epochs}")
     logger.info(f"Timesampler: {timesampler_config.value}")
+    logger.info(
+        f"Full snapshot interval: {checkpoint_snapshot_percent}% of training steps"
+    )
+    if resume_from:
+        logger.info(f"Resuming from checkpoint: {resume_from}")
 
     if use_ema:
         if not 0.0 < ema_halflife_ratio <= 1.0:
@@ -239,7 +257,18 @@ def train(
     logger.info(f"Model target: {model.target.value}")
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    if model.try_load_raw():
+    resume_trainer_path = None
+    if resume_from:
+        resume_raw_path, resume_trainer_path, _ = resolve_snapshot_paths(resume_from)
+        if not os.path.exists(resume_raw_path):
+            logger.error(f"Raw model for resume not found: {resume_raw_path}")
+            raise typer.Exit(code=1)
+        if not os.path.exists(resume_trainer_path):
+            logger.error(f"Trainer state for resume not found: {resume_trainer_path}")
+            raise typer.Exit(code=1)
+        model.load_from_path(resume_raw_path)
+        logger.info(f"Loaded raw model for resume: {resume_raw_path}")
+    elif model.try_load_raw():
         logger.info(f"Loaded raw model for resume: models/{model.raw_file_name}")
     elif model.try_load():
         logger.warning(
@@ -256,6 +285,7 @@ def train(
             time_sampler=timesampler_config,
             epochs=n_epochs,
             checkpoint_interval_steps=checkpoint_interval,
+            checkpoint_snapshot_percent=checkpoint_snapshot_percent,
             use_amp=use_amp,
             use_bf16=use_bf16,
             use_ema=use_ema,
@@ -265,7 +295,7 @@ def train(
             dataset=dataset.value,
         ),
     )
-    trainer.load_checkpoint()
+    trainer.load_checkpoint(resume_trainer_path)
 
     dataloader = get_dataloader(
         batch_size=batch_size,

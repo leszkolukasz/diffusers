@@ -109,6 +109,11 @@ def generate(
     solver_name: SolverType = typer.Option(
         SolverType.heun, "--solver", help="Discrete/ODE/SDE Solver"
     ),
+    solver_T: float | None = typer.Option(
+        None,
+        "--solver-T",
+        help="Maximum time step T solver can be run with. Defaults to the model's predictor T.",
+    ),
     equation_name: EquationType = typer.Option(
         EquationType.probability_flow,
         "--equation",
@@ -148,6 +153,7 @@ def generate(
     logger.info(f"Stochasticity (eta): {eta.value}")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Solver: {solver_name.value}")
+    logger.info(f"Solver T: {solver_T if solver_T is not None else 'default'}")
 
     if model_id:
         logger.info(f"Loading HuggingFace model: {model_id}")
@@ -221,7 +227,11 @@ def generate(
     )
 
     predictor_T = model.timestep_config.T
-    solver_T = get_solver_T(equation_name, schedule, predictor_T)
+    solver_T = (
+        get_solver_T(equation_name, schedule, predictor_T)
+        if solver_T is None
+        else solver_T
+    )
     solver = SOLVER_CONFIGS[solver_name](
         equation=equation,
         T=solver_T,

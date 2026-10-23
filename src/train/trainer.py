@@ -22,6 +22,7 @@ from src.model import VAE, PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 from src.train import ExpMovingAverageWrapper, WarmupCosineLR
+from src.train.checkpoint import snapshot_stem, snapshot_steps
 
 EPSILON = 1e-3
 
@@ -42,6 +43,7 @@ class TrainingConfig:
     lr: float = 1e-4
     checkpoint_dir: str = "models/"
     checkpoint_interval_steps: int = 100
+    checkpoint_snapshot_percent: float = 5.0
     time_sampler: TimeSampler = TimeSampler.UNIFORM_CONTINUOUS
     use_ema: bool = True  # Exponential Moving Average
     ema_halflife_ratio: float = 0.05
@@ -110,11 +112,30 @@ class Trainer:
             self.config.checkpoint_dir, f"trainer_{self.raw_model.file_name}"
         )
 
+    def _checkpoint_paths(self, snapshot_name: str | None = None) -> tuple[str, str, str]:
+        if snapshot_name is None:
+            return (
+                os.path.join(self.config.checkpoint_dir, self.raw_model.file_name),
+                os.path.join(
+                    self.config.checkpoint_dir, self.raw_model.raw_file_name
+                ),
+                self._get_trainer_state_path(),
+            )
+
+        return (
+            os.path.join(self.config.checkpoint_dir, f"{snapshot_name}.pth"),
+            os.path.join(self.config.checkpoint_dir, f"raw_{snapshot_name}.pth"),
+            os.path.join(self.config.checkpoint_dir, f"trainer_{snapshot_name}.pth"),
+        )
+
     def save_checkpoint(
         self,
         model: nn.Module | Predictor,
         *,
         raw_model: Predictor | None = None,
+        snapshot_name: str | None = None,
+        snapshot_epoch: int | None = None,
+        snapshot_step: int | None = None,
     ):
         metadata = {
             PredictorMetadata.AlphaSchedule: self.schedules.alpha.__class__.__name__,
@@ -123,13 +144,17 @@ class Trainer:
             PredictorMetadata.VAE: self.vae.model_id if self.vae is not None else None,
             PredictorMetadata.Dataset: self.config.dataset,
         }
+        if hasattr(model, "model_size"):
+            metadata["model_size"] = model.model_size.value
 
-        model.save(**metadata)
+        if snapshot_name is not None:
+            metadata["epoch"] = snapshot_epoch
+            metadata["step"] = snapshot_step
+
+        model_path, raw_path, trainer_path = self._checkpoint_paths(snapshot_name)
+        model.save_to(model_path, **metadata)
 
         if raw_model is not None:
-            raw_path = os.path.join(
-                self.config.checkpoint_dir, raw_model.raw_file_name
-            )
             raw_model.save_to(raw_path, **metadata)
 
         trainer_state = {
@@ -138,10 +163,10 @@ class Trainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
         }
-        torch.save(trainer_state, self._get_trainer_state_path())
+        torch.save(trainer_state, trainer_path)
 
-    def load_checkpoint(self):
-        path = self._get_trainer_state_path()
+    def load_checkpoint(self, path: str | None = None):
+        path = path or self._get_trainer_state_path()
         if os.path.exists(path):
             state = torch.load(path, weights_only=False)
             self.current_epoch = state["epoch"]
@@ -153,6 +178,8 @@ class Trainer:
                 f"Resuming training from epoch {self.current_epoch}, step {self.total_steps_executed}"
             )
         else:
+            if path != self._get_trainer_state_path():
+                raise FileNotFoundError(f"Trainer checkpoint not found: {path}")
             logger.info("No trainer checkpoint found, starting fresh training")
 
     def train(self, dataloader: DataLoader):
@@ -160,6 +187,21 @@ class Trainer:
         solver_T = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
+        snapshot_at_steps = snapshot_steps(
+            total_training_steps, self.config.checkpoint_snapshot_percent
+        )
+        snapshot_index = 0
+        while (
+            snapshot_index < len(snapshot_at_steps)
+            and snapshot_at_steps[snapshot_index] <= self.total_steps_executed
+        ):
+            snapshot_index += 1
+        if snapshot_at_steps:
+            logger.info(
+                "Saving full training snapshots at steps: "
+                + ", ".join(str(step) for step in snapshot_at_steps)
+            )
+
         lr_scheduler = WarmupCosineLR(
             self.optimizer,
             total_steps=total_training_steps,
@@ -321,6 +363,35 @@ class Trainer:
                     )
 
                 self.total_steps_executed += 1
+
+                while (
+                    snapshot_index < len(snapshot_at_steps)
+                    and self.total_steps_executed >= snapshot_at_steps[snapshot_index]
+                ):
+                    step = snapshot_at_steps[snapshot_index]
+                    if get_rank() == 0 and self.total_steps_executed == step:
+                        name = snapshot_stem(
+                            self.raw_model.file_name,
+                            epoch=self.current_epoch + 1,
+                            step=step,
+                        )
+                        logger.info(
+                            f"Saving full snapshot at epoch {self.current_epoch + 1}, "
+                            f"step {step}: {name}"
+                        )
+                        self.save_checkpoint(
+                            ema_wrapper.ema_model
+                            if ema_wrapper is not None
+                            else self.raw_model,
+                            raw_model=self.raw_model
+                            if ema_wrapper is not None
+                            else None,
+                            snapshot_name=name,
+                            snapshot_epoch=self.current_epoch + 1,
+                            snapshot_step=step,
+                        )
+                    snapshot_index += 1
+
                 end_time = time.time()
 
         if get_rank() == 0:
