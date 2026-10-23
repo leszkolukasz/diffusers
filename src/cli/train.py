@@ -1,9 +1,9 @@
 import os
 
 import typer
-import wandb
 from loguru import logger
 
+import wandb
 from src import distributed
 from src.config import (
     DatasetType,
@@ -177,7 +177,9 @@ def train(
         eta_schedule=eta_schedule,
     )
 
-    if enable_wandb or (distributed.get_rank() == 0 and distributed.is_distributed()):
+    if distributed.get_rank() == 0 and (
+        enable_wandb or distributed.is_distributed()
+    ):
         run_identifier = f"{model_name.value}_{schedule.value}_{dataset.value}"
         if run_id:
             run_identifier = f"{run_id}_" + run_identifier
@@ -298,6 +300,7 @@ def train(
             ema_warmup_ratio=ema_warmup_ratio,
             lr=1e-2 if is_edm2 else 1e-4,
             dataset=dataset.value,
+            enable_wandb=enable_wandb,
         ),
     )
     trainer.load_checkpoint(resume_trainer_path)
@@ -312,5 +315,7 @@ def train(
 
     logger.success("Training completed successfully")
 
-    if distributed.get_rank() == 0 and distributed.is_distributed():
+    if distributed.get_rank() == 0 and (
+        enable_wandb or distributed.is_distributed()
+    ):
         wandb.finish()

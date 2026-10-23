@@ -8,7 +8,6 @@ from typing import Protocol
 import psutil
 import torch
 import torch.distributed
-import wandb
 from loguru import logger
 from torch import nn, optim
 from torch.amp import GradScaler, autocast
@@ -16,6 +15,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import wandb
 from src.diffusion import diffuse
 from src.distributed import get_rank, get_world_size, is_distributed
 from src.model import VAE, PredictionTarget, Predictor, PredictorMetadata
@@ -25,6 +25,12 @@ from src.train import ExpMovingAverageWrapper, WarmupCosineLR
 from src.train.checkpoint import snapshot_stem, snapshot_steps
 
 EPSILON = 1e-3
+
+
+def should_log_metrics(
+    *, rank: int, distributed: bool, enable_wandb: bool
+) -> bool:
+    return rank == 0 and (distributed or enable_wandb)
 
 
 class DatasetProtocol(Protocol):
@@ -52,6 +58,7 @@ class TrainingConfig:
     use_amp: bool = True  # Automatic Mixed Precision
     use_bf16: bool = False
     dataset: str | None = None
+    enable_wandb: bool = False
 
 
 class Trainer:
@@ -338,7 +345,11 @@ class Trainer:
                 avg_loss = total_loss / (batch_idx + 1)
                 pbar.set_postfix({"loss": avg_loss})
 
-                if get_rank() == 0 and is_distributed():
+                if should_log_metrics(
+                    rank=get_rank(),
+                    distributed=is_distributed(),
+                    enable_wandb=self.config.enable_wandb,
+                ):
                     self._log_metrics(
                         loss=loss.item(),
                         avg_loss=avg_loss,
