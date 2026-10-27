@@ -20,7 +20,13 @@ from src.equation import (
     ProbabilityFlow,
     ScoreSDE,
 )
-from src.model import Predictor, PredictorEDM, PredictorEDM2, PredictorUNet
+from src.model import (
+    Predictor,
+    PredictorEDM,
+    PredictorEDM2,
+    PredictorEDM2Pretrained,
+    PredictorUNet,
+)
 from src.schedule import (
     AlphaSchedule,
     ConstantAlphaSchedule,
@@ -122,6 +128,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
 MODEL_CONFIGS: dict[ModelType, type[Predictor]] = {
     ModelType.edm: PredictorEDM,
     ModelType.edm2: PredictorEDM2,
+    ModelType.edm2_pretrained: PredictorEDM2Pretrained,
     ModelType.unet: PredictorUNet,
 }
 

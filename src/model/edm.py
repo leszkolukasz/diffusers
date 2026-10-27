@@ -1,10 +1,18 @@
-from typing import override
+import os
+import pickle
+import sys
+import types
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, override
+from urllib.parse import urlparse
 
 import torch
+from loguru import logger
 
 from src.model import PredictionTarget, PredictorUNet, reparametrize
 from src.model.nvidia.edm2 import UNet as UNetEDM2
-from src.model.presets import EDM2_PRESETS, ModelSize
+from src.model.presets import EDM2_PRESETS, EDM2_PRETRAINED_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
 
@@ -125,12 +133,226 @@ class PredictorEDM2(PredictorEDM):
 
         self.file_name = f"{self.prefix + '_' if self.prefix else ''}{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
-        self.unet = UNetEDM2(
-            img_resolution=img_width,
-            img_channels=n_channels,
+    def _build_unet(self):
+        return UNetEDM2(
+            img_resolution=self.img_width,
+            img_channels=self.n_channels,
             label_dim=0,
-            **EDM2_PRESETS[model_size],
+            **EDM2_PRESETS[self.model_size],
         )
 
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         return self.unet(x, timestep, None)
+
+
+@contextmanager
+def _edm2_pickle_modules():
+    """Fixes pickling issues as EDM2 uses different import paths."""
+
+    from src.model.nvidia import dnnlib, torch_utils
+    from src.model.nvidia.torch_utils import misc, persistence
+
+    stubs = {
+        name: types.ModuleType(name)
+        for name in ("torch_utils.distributed", "torch_utils.training_stats")
+    }
+    aliases = {
+        "dnnlib": dnnlib,
+        "torch_utils": torch_utils,
+        "torch_utils.persistence": persistence,
+        "torch_utils.misc": misc,
+        **stubs,
+    }
+
+    previous_modules = {name: sys.modules.get(name) for name in aliases}
+    previous_attributes = {}
+    for name, module in (
+        ("persistence", persistence),
+        ("misc", misc),
+        ("distributed", stubs["torch_utils.distributed"]),
+        ("training_stats", stubs["torch_utils.training_stats"]),
+    ):
+        previous_attributes[name] = getattr(torch_utils, name, None)
+        setattr(torch_utils, name, module)
+
+    sys.modules.update(aliases)
+    try:
+        yield
+    finally:
+        for name, module in previous_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        for name, module in previous_attributes.items():
+            if module is None:
+                delattr(torch_utils, name)
+            else:
+                setattr(torch_utils, name, module)
+
+
+def _edm2_cache_dir() -> Path:
+    cache_dir = os.environ.get("EDM2_CACHE_DIR")
+    if cache_dir:
+        return Path(cache_dir).expanduser()
+    return Path.home() / ".cache" / "diffusion-model" / "edm2"
+
+
+def _download_edm2_checkpoint(url: str, expected_size: int) -> Path:
+    cache_path = _edm2_cache_dir() / Path(urlparse(url).path).name
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if cache_path.exists() and cache_path.stat().st_size == expected_size:
+        return cache_path
+
+    if cache_path.exists():
+        logger.warning(f"Removing incomplete EDM2 checkpoint: {cache_path}")
+        cache_path.unlink()
+
+    logger.info(f"Downloading EDM2 checkpoint: {url}")
+    torch.hub.download_url_to_file(url, str(cache_path), progress=True)
+
+    if cache_path.stat().st_size != expected_size:
+        raise RuntimeError(
+            f"EDM2 checkpoint has wrong size: {cache_path} "
+            f"({cache_path.stat().st_size} bytes, expected {expected_size})"
+        )
+    return cache_path
+
+
+def _extract_edm2_unet_state(checkpoint_path: Path) -> dict[str, Any]:
+    state_path = checkpoint_path.with_suffix(".unet.pth")
+    if state_path.exists():
+        return torch.load(state_path, map_location="cpu", weights_only=True)[
+            "state_dict"
+        ]
+
+    logger.info(f"Extracting UNet weights from EDM2 checkpoint: {checkpoint_path}")
+    with _edm2_pickle_modules(), checkpoint_path.open("rb") as file:
+        data = pickle.load(file)
+
+    ema = data["ema"]
+    state_dict = ema.unet.state_dict()
+    torch.save({"state_dict": state_dict}, state_path)
+    return state_dict
+
+
+class PredictorEDM2Pretrained(PredictorEDM2):
+    def __init__(
+        self,
+        n_channels: int,
+        img_width: int,
+        img_height: int,
+        T: int,
+        model_size: ModelSize | str = ModelSize.PRETRAINED_XS_IMG64,
+        prefix: str | None = None,
+        suffix: str | None = None,
+        **kwargs,
+    ):
+        model_size = (
+            ModelSize.from_value(model_size)
+            if isinstance(model_size, str)
+            else model_size
+        )
+        if model_size not in EDM2_PRETRAINED_PRESETS:
+            logger.warning(
+                f"Model size '{model_size.value}' is not a pretrained EDM2 preset; "
+                f"using {ModelSize.PRETRAINED_XS_IMG64.value}."
+            )
+            model_size = ModelSize.PRETRAINED_XS_IMG64
+
+        self.pretrained_preset = EDM2_PRETRAINED_PRESETS[model_size]
+        self.label_dim = int(self.pretrained_preset["label_dim"])
+
+        super().__init__(
+            n_channels=n_channels,
+            img_width=img_width,
+            img_height=img_height,
+            T=T,
+            model_size=model_size,
+            prefix=prefix,
+            suffix=suffix,
+            **kwargs,
+        )
+
+        prefix_str = f"{self.prefix}_" if self.prefix else ""
+        suffix_str = suffix if suffix is not None else ""
+        self.file_name = (
+            f"{prefix_str}{self.target.value}"
+            f"{'_norm_x' if self.normalize_x else ''}"
+            f"_predictor_edm2_{model_size.value.lower()}{suffix_str}.pth"
+        )
+
+    def _build_unet(self):
+        preset = self.pretrained_preset
+        expected_width = int(preset["img_resolution"])
+        expected_channels = int(preset["img_channels"])
+        if self.img_width != expected_width or self.img_height != expected_width:
+            raise ValueError(
+                f"{self.__class__.__name__} requires {expected_width}x{expected_width} "
+                f"images, but got {self.img_height}x{self.img_width}."
+            )
+        if self.n_channels != expected_channels:
+            raise ValueError(
+                f"{self.__class__.__name__} requires {expected_channels} input "
+                f"channels, but got {self.n_channels}."
+            )
+
+        self.label_dim = int(preset["label_dim"])
+        return UNetEDM2(
+            img_resolution=expected_width,
+            img_channels=expected_channels,
+            label_dim=self.label_dim,
+            **preset["unet"],
+        )
+
+    def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
+        if self.label_dim == 0:
+            labels = None
+        else:
+            # NVIDIA's Precond uses the all-zero label vector when no class
+            # labels are supplied
+            labels = torch.zeros(
+                (x.shape[0], self.label_dim), device=x.device, dtype=x.dtype
+            )
+        return self.unet(x, timestep, labels)
+
+    def load_pretrained(self):
+        preset = self.pretrained_preset
+        checkpoint_path = _download_edm2_checkpoint(
+            str(preset["checkpoint_url"]), int(preset["checkpoint_size"])
+        )
+        state_dict = _extract_edm2_unet_state(checkpoint_path)
+        self.unet.load_state_dict(state_dict, strict=True)
+
+        self.metadata = {
+            "type": self.__class__.__name__,
+            "T": self.timestep_config.T,
+            "n_channels": self.n_channels,
+            "img_width": self.img_width,
+            "img_height": self.img_height,
+            "target": self.target.value,
+            "normalize_x": self.normalize_x,
+            "model_size": self.model_size.value,
+            "pretrained_preset": self.model_size.value,
+            "alpha_schedule": "ConstantAlphaSchedule",
+            "sigma_schedule": "LinearSigmaSchedule",
+            "eta_schedule": "ConstantEtaSchedule",
+        }
+        logger.info(
+            f"Loaded pretrained EDM2 UNet from {self.model_size.value} "
+            f"({sum(p.numel() for p in self.unet.parameters()):,} parameters)"
+        )
+
+    def load(self):
+        local_path = f"models/{self.file_name}"
+        if os.path.exists(local_path):
+            super().load()
+        else:
+            self.load_pretrained()
+
+    def try_load(self) -> bool:
+        if super().try_load():
+            return True
+        self.load_pretrained()
+        return True

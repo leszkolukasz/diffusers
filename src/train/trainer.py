@@ -189,7 +189,7 @@ class Trainer:
 
     def train(self, dataloader: DataLoader):
         device = next(self.model.parameters()).device
-        solver_T = self.raw_model.timestep_config.T
+        predictor_T = self.raw_model.timestep_config.T
 
         total_training_steps = self.config.epochs * len(dataloader)
         snapshot_at_steps = snapshot_steps(
@@ -262,20 +262,20 @@ class Trainer:
 
                 match self.config.time_sampler:
                     case TimeSampler.UNIFORM_CONTINUOUS:
-                        t = torch.rand(X.size(0), device=X.device) * solver_T
+                        t = torch.rand(X.size(0), device=X.device) * predictor_T
                         t = t.clamp(
-                            min=EPSILON * solver_T, max=(1 - EPSILON) * solver_T
+                            min=EPSILON * predictor_T, max=(1 - EPSILON) * predictor_T
                         )
                     case TimeSampler.UNIFORM_DISCRETE:
                         t = torch.randint(
-                            1, int(solver_T) + 1, (X.size(0),), device=X.device
+                            1, int(predictor_T) + 1, (X.size(0),), device=X.device
                         )
                     case TimeSampler.EDM:
                         P_mean = -1.2
                         P_std = 1.2
                         t = torch.randn(X.size(0), device=X.device) * P_std + P_mean
                         t = torch.exp(t)
-                        t = torch.clamp(t, min=EPSILON, max=solver_T)
+                        t = torch.clamp(t, min=EPSILON, max=predictor_T)
 
                 t = Timestep(self.raw_model.timestep_config, t)
 

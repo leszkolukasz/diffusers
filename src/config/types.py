@@ -65,6 +65,7 @@ class DatasetType(str, Enum):
 class ModelType(str, Enum):
     edm = "edm"
     edm2 = "edm2"
+    edm2_pretrained = "edm2_pretrained"
     unet = "unet"
     huggingface = "huggingface"
 

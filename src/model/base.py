@@ -33,9 +33,7 @@ class PersistableModule(nn.Module):
     def raw_file_name(self) -> str:
         return f"raw_{self.file_name}"
 
-    def save(
-        self, path: str | os.PathLike | None = None, **extra_metadata
-    ):
+    def save(self, path: str | os.PathLike | None = None, **extra_metadata):
         self.save_to(path or f"models/{self.file_name}", **extra_metadata)
 
     def save_to(self, path: str | os.PathLike, **extra_metadata):
@@ -49,9 +47,9 @@ class PersistableModule(nn.Module):
         torch.save(checkpoint, path)
 
     def load(self):
-        self.load_from_path(f"models/{self.file_name}")
+        self._load_from_path(f"models/{self.file_name}")
 
-    def load_from_path(self, path: str | os.PathLike):
+    def _load_from_path(self, path: str | os.PathLike):
         checkpoint = torch.load(path, weights_only=False)
         self.load_state_dict(checkpoint["state_dict"])
         self.metadata = checkpoint.get("config", {})
@@ -71,7 +69,7 @@ class PersistableModule(nn.Module):
     def try_load_raw(self) -> bool:
         path = f"models/{self.raw_file_name}"
         if os.path.exists(path):
-            self.load_from_path(path)
+            self._load_from_path(path)
             return True
         return False
 
@@ -176,9 +174,7 @@ class Predictor(PersistableModule, ABC):
     ) -> torch.Tensor:
         return torch.tensor(1.0, device=t.device)
 
-    def save(
-        self, path: str | os.PathLike | None = None, **extra_metadata
-    ):
+    def save(self, path: str | os.PathLike | None = None, **extra_metadata):
         super().save(
             path=path,
             T=self.timestep_config.T,

@@ -94,7 +94,10 @@ class FIDEvaluator:
     def evaluate_all(self) -> dict[str, float]:
         return {
             metric.value: self.evaluate(metric)
-            for metric in (FIDMetric.fid, FIDMetric.clip_fid, FIDMetric.kid)
+            for metric in (
+                FIDMetric.fid,
+                FIDMetric.kid,
+            )  # (FIDMetric.fid, FIDMetric.clip_fid, FIDMetric.kid)
         }
 
     def _get_image_files(self, path: Path) -> list[Path]:

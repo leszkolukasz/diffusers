@@ -177,9 +177,7 @@ def train(
         eta_schedule=eta_schedule,
     )
 
-    if distributed.get_rank() == 0 and (
-        enable_wandb or distributed.is_distributed()
-    ):
+    if distributed.get_rank() == 0 and (enable_wandb or distributed.is_distributed()):
         run_identifier = f"{model_name.value}_{schedule.value}_{dataset.value}"
         if run_id:
             run_identifier = f"{run_id}_" + run_identifier
@@ -221,7 +219,7 @@ def train(
         logger.info(f"Latent size: {n_channels}x{img_width}x{img_height}")
 
     if img_width == 1 and img_height == 1:
-        if model_name == ModelType.edm2:
+        if model_name in (ModelType.edm2, ModelType.edm2_pretrained):
             logger.error(
                 "EDM2 does not support 1x1 inputs. Use --model edm or --model unet."
             )
@@ -273,7 +271,7 @@ def train(
         if not os.path.exists(resume_trainer_path):
             logger.error(f"Trainer state for resume not found: {resume_trainer_path}")
             raise typer.Exit(code=1)
-        model.load_from_path(resume_raw_path)
+        model._load_from_path(resume_raw_path)
         logger.info(f"Loaded raw model for resume: {resume_raw_path}")
     elif model.try_load_raw():
         logger.info(f"Loaded raw model for resume: models/{model.raw_file_name}")
@@ -282,7 +280,7 @@ def train(
             "Loaded an EMA/inference checkpoint. Raw resume weights were not found."
         )
 
-    is_edm2 = model_name == ModelType.edm2
+    is_edm2 = model_name in (ModelType.edm2, ModelType.edm2_pretrained)
 
     trainer = Trainer(
         model=model,
@@ -315,7 +313,5 @@ def train(
 
     logger.success("Training completed successfully")
 
-    if distributed.get_rank() == 0 and (
-        enable_wandb or distributed.is_distributed()
-    ):
+    if distributed.get_rank() == 0 and (enable_wandb or distributed.is_distributed()):
         wandb.finish()
