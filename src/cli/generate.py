@@ -71,6 +71,38 @@ def parse_class_idx(value: str | None) -> int | str | None:
         ) from error
 
 
+def _generation_state_path(output_path: str | Path) -> Path:
+    return Path(output_path) / ".generation_state.pt"
+
+
+def _save_generation_state(output_path: str | Path, next_index: int) -> None:
+    path = _generation_state_path(output_path)
+    temporary = path.with_name(f"{path.name}.tmp")
+    state = {
+        "next_index": int(next_index),
+        "cpu_rng_state": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda_rng_state"] = torch.cuda.get_rng_state_all()
+    torch.save(state, temporary)
+    os.replace(temporary, path)
+
+
+def _load_generation_state(output_path: str | Path) -> int:
+    path = _generation_state_path(output_path)
+    if not path.exists():
+        logger.warning(
+            f"No generation state found in {output_path}; starting from scratch."
+        )
+        return 0
+
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    torch.set_rng_state(state["cpu_rng_state"])
+    if torch.cuda.is_available() and state.get("cuda_rng_state") is not None:
+        torch.cuda.set_rng_state_all(state["cuda_rng_state"])
+    return int(state["next_index"])
+
+
 def load_pretrained_edm2(
     preset_name: str, class_idx: int | str | None = None
 ) -> PredictorEDM2Pretrained:
@@ -211,6 +243,11 @@ def generate(
         "--output",
         "-o",
         help="Output directory (default: generated/<solver>_<schedule>).",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Resume from the last completed batch in the output directory.",
     ),
 ):
     logger.info("Starting the generation")
@@ -405,15 +442,29 @@ def generate(
         "sampling_schedule": sampling_schedule.value,
     }
     save_as_tensor = is_toy_dataset(dataset)
+    if resume and save_as_tensor:
+        logger.error("--resume is not supported for tensor/toy datasets.")
+        raise typer.Exit(code=1)
 
-    logger.info(f"Generating {n_samples} samples in batches of {batch_size}...")
+    start_index = _load_generation_state(output_path) if resume else 0
+    if start_index >= n_samples:
+        logger.success(
+            f"Generation already complete: {n_samples} samples in {output_path}."
+        )
+        return
+
+    logger.info(
+        f"Generating samples {start_index + 1}..{n_samples} "
+        f"in batches of {batch_size}..."
+    )
     stored_chunks: list[torch.Tensor] = []
-    n_batches = (n_samples + batch_size - 1) // batch_size
+    remaining = n_samples - start_index
+    n_batches = (remaining + batch_size - 1) // batch_size
 
     progress = tqdm(total=n_batches, desc="Generating", unit="batch")
     try:
         with torch.no_grad():
-            for start in range(0, n_samples, batch_size):
+            for start in range(start_index, n_samples, batch_size):
                 current = min(batch_size, n_samples - start)
                 if (
                     isinstance(model, PredictorEDM2Pretrained)
@@ -424,7 +475,7 @@ def generate(
                     )
                 chunk = generator.generate(
                     n_samples=current,
-                    verbose=start == 0,
+                    verbose=start == start_index,
                     **generator_kwargs,
                 )
                 if save_as_tensor:
@@ -433,6 +484,7 @@ def generate(
                     save_generation_output(
                         chunk, output_path, dataset, metadata, start_index=start
                     )
+                    _save_generation_state(output_path, start + current)
 
                 progress.update(1)
                 progress.set_postfix_str(
@@ -446,4 +498,7 @@ def generate(
         saved = save_generation_output(generated, output_path, dataset, metadata)
         logger.success(f"Saved generation output to {saved}")
     else:
-        logger.success(f"Saved {n_samples} images to {output_path}")
+        logger.success(
+            f"Saved {n_samples - start_index} new images to {output_path} "
+            f"({n_samples} total)."
+        )
