@@ -116,6 +116,11 @@ def train(
         "--bf16/--no-bf16",
         help="Whether to use bfloat16 precision",
     ),
+    uncertainty_loss: bool = typer.Option(
+        False,
+        "--uncertainty-loss/--no-uncertainty-loss",
+        help="Use EDM2 uncertainty loss with a learned log-variance head.",
+    ),
     n_workers: int = typer.Option(
         1, "--n-workers", help="Number of dataloader workers"
     ),
@@ -293,6 +298,7 @@ def train(
             checkpoint_snapshot_percent=checkpoint_snapshot_percent,
             use_amp=use_amp,
             use_bf16=use_bf16,
+            uncertainty_loss=uncertainty_loss,
             use_ema=use_ema,
             ema_halflife_ratio=ema_halflife_ratio,
             ema_warmup_ratio=ema_warmup_ratio,

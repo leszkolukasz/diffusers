@@ -72,7 +72,10 @@ class PredictorUNet(Predictor):
         x: torch.Tensor,
         timestep: Timestep,
         schedules: ScheduleGroup | None = None,
+        return_logvar: bool = False,
     ) -> torch.Tensor:
+        if return_logvar:
+            raise NotImplementedError("This predictor has no logvar head.")
         timestep = timestep.adapt(self.timestep_config)
         return self.unet(x, timestep=timestep.steps).sample
 

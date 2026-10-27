@@ -34,7 +34,10 @@ class AnalyticalGaussianPredictor(Predictor):
         x: torch.Tensor,
         timestep: Timestep,
         schedules: ScheduleGroup | None = None,
+        return_logvar: bool = False,
     ) -> torch.Tensor:
+        if return_logvar:
+            raise NotImplementedError("This predictor has no logvar head.")
         t = timestep.adapt(self.timestep_config).steps
         t = t.view(-1, *([1] * (x.dim() - 1)))
         c_sq = self.c**2

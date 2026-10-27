@@ -55,6 +55,7 @@ class TrainingConfig:
     ema_update_every_n_steps: int = 10
     use_amp: bool = True  # Automatic Mixed Precision
     use_bf16: bool = False
+    uncertainty_loss: bool = False
     dataset: str | None = None
     enable_wandb: bool = False
 
@@ -285,7 +286,16 @@ class Trainer:
                     enabled=self.config.use_amp,
                 ):
                     X_noisy, noise = diffuse(X, t, self.schedules)
-                    pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
+                    logvar = None
+                    if self.config.uncertainty_loss:
+                        pred, logvar = self.model(
+                            X_noisy,
+                            timestep=t,
+                            schedules=self.schedules,
+                            return_logvar=True,
+                        )
+                    else:
+                        pred = self.model(X_noisy, timestep=t, schedules=self.schedules)
 
                     if self.raw_model.target == PredictionTarget.Noise:
                         target = noise
@@ -304,7 +314,11 @@ class Trainer:
                     weight = self.raw_model.loss_weight(t, self.schedules).view(
                         -1, 1, 1, 1
                     )
-                    loss = self.criterion(pred, target) * weight
+                    squared_error = self.criterion(pred, target)
+                    if logvar is not None:
+                        loss = (weight / logvar.exp()) * squared_error + logvar
+                    else:
+                        loss = squared_error * weight
                     loss = loss.mean()
 
                 self.scaler.scale(loss).backward()

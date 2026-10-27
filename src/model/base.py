@@ -152,12 +152,20 @@ class Predictor(PersistableModule, ABC):
         x: torch.Tensor,
         timestep: Timestep,
         schedules: ScheduleGroup | None = None,
-    ) -> torch.Tensor:
+        return_logvar: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if self.normalize_x:
             if schedules is None:
                 raise ValueError("schedules must be provided when normalize_x is True")
             x = x / schedules.s(timestep).view(-1, 1, 1, 1)
 
+        if return_logvar:
+            return self._forward(
+                x=x,
+                timestep=timestep,
+                schedules=schedules,
+                return_logvar=True,
+            )
         return self._forward(x=x, timestep=timestep, schedules=schedules)
 
     @abstractmethod
@@ -166,7 +174,8 @@ class Predictor(PersistableModule, ABC):
         x: torch.Tensor,
         timestep: Timestep,
         schedules: ScheduleGroup | None = None,
-    ) -> torch.Tensor:
+        return_logvar: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         pass
 
     def loss_weight(

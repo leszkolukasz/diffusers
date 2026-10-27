@@ -11,6 +11,7 @@ import torch
 from loguru import logger
 
 from src.model import PredictionTarget, PredictorUNet, reparametrize
+from src.model.nvidia.edm2 import MPConv, MPFourier
 from src.model.nvidia.edm2 import UNet as UNetEDM2
 from src.model.presets import EDM2_PRESETS, EDM2_PRETRAINED_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
@@ -57,8 +58,12 @@ class PredictorEDM(PredictorUNet):
     # Assumes x is normalized by s(t) already, i.e. x = x_t / s(t)
     @override
     def _forward(
-        self, x: torch.Tensor, timestep: Timestep, schedules: ScheduleGroup
-    ) -> torch.Tensor:
+        self,
+        x: torch.Tensor,
+        timestep: Timestep,
+        schedules: ScheduleGroup,
+        return_logvar: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         if not self.normalize_x:
             x = x / schedules.s(timestep).view(-1, 1, 1, 1)
 
@@ -72,6 +77,9 @@ class PredictorEDM(PredictorUNet):
         c_skip = sigma_data**2 / (sigma_t**2 + sigma_data**2)
         pred = self._predict(c_in * x, c_noise)
         x0 = c_skip * x + c_out * pred
+
+        if return_logvar:
+            return x0, self._predict_logvar(c_noise)
 
         if self.target == PredictionTarget.x0:
             return x0
@@ -133,6 +141,9 @@ class PredictorEDM2(PredictorEDM):
 
         self.file_name = f"{self.prefix + '_' if self.prefix else ''}{self.target.value}{'_norm_x' if self.normalize_x else ''}_predictor_edm2_{model_size.value}{suffix if suffix is not None else ''}.pth"
 
+        self.logvar_fourier = MPFourier(128)
+        self.logvar_linear = MPConv(128, 1, kernel=[])
+
     def _build_unet(self):
         return UNetEDM2(
             img_resolution=self.img_width,
@@ -143,6 +154,9 @@ class PredictorEDM2(PredictorEDM):
 
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         return self.unet(x, timestep, None)
+
+    def _predict_logvar(self, c_noise: torch.Tensor) -> torch.Tensor:
+        return self.logvar_linear(self.logvar_fourier(c_noise)).reshape(-1, 1, 1, 1)
 
 
 @contextmanager
@@ -232,9 +246,13 @@ def _extract_edm2_unet_state(checkpoint_path: Path) -> dict[str, Any]:
         data = pickle.load(file)
 
     ema = data["ema"]
-    state_dict = ema.unet.state_dict()
-    torch.save({"state_dict": state_dict}, state_path)
-    return state_dict
+    payload = {
+        "unet": ema.unet.state_dict(),
+        "logvar_fourier": ema.logvar_fourier.state_dict(),
+        "logvar_linear": ema.logvar_linear.state_dict(),
+    }
+    torch.save(payload, state_path)
+    return payload
 
 
 class PredictorEDM2Pretrained(PredictorEDM2):
@@ -359,7 +377,14 @@ class PredictorEDM2Pretrained(PredictorEDM2):
             str(preset["checkpoint_url"]), int(preset["checkpoint_size"])
         )
         state_dict = _extract_edm2_unet_state(checkpoint_path)
-        self.unet.load_state_dict(state_dict, strict=True)
+        self.unet.load_state_dict(state_dict["unet"], strict=True)
+        if "logvar_fourier" in state_dict and "logvar_linear" in state_dict:
+            self.logvar_fourier.load_state_dict(state_dict["logvar_fourier"])
+            self.logvar_linear.load_state_dict(state_dict["logvar_linear"])
+        else:
+            logger.warning(
+                "EDM2 checkpoint cache has no logvar head; using a fresh one."
+            )
 
         self.metadata = {
             "type": self.__class__.__name__,
