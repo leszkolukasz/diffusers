@@ -245,6 +245,7 @@ class PredictorEDM2Pretrained(PredictorEDM2):
         img_height: int,
         T: int,
         model_size: ModelSize | str = ModelSize.PRETRAINED_XS_IMG64,
+        class_idx: int | str | None = None,
         prefix: str | None = None,
         suffix: str | None = None,
         **kwargs,
@@ -263,6 +264,18 @@ class PredictorEDM2Pretrained(PredictorEDM2):
 
         self.pretrained_preset = EDM2_PRETRAINED_PRESETS[model_size]
         self.label_dim = int(self.pretrained_preset["label_dim"])
+        if class_idx == "random":
+            self.class_idx: int | str | None = "random"
+        elif class_idx is not None:
+            class_idx = int(class_idx)
+            if not 0 <= class_idx < self.label_dim:
+                raise ValueError(
+                    f"class_idx must be in [0, {self.label_dim}), got {class_idx}."
+                )
+            self.class_idx = class_idx
+        else:
+            self.class_idx = None
+        self._random_class_labels: torch.Tensor | None = None
 
         super().__init__(
             n_channels=n_channels,
@@ -306,15 +319,38 @@ class PredictorEDM2Pretrained(PredictorEDM2):
             **preset["unet"],
         )
 
+    def set_random_class_labels(self, batch_size: int, device=None) -> None:
+        if self.label_dim == 0:
+            return
+        if device is None:
+            device = next(self.parameters()).device
+        labels = torch.zeros(
+            (batch_size, self.label_dim), device=device, dtype=torch.float32
+        )
+        indices = torch.randint(
+            self.label_dim, (batch_size,), device=device, dtype=torch.long
+        )
+        labels[torch.arange(batch_size, device=device), indices] = 1
+        self._random_class_labels = labels
+
     def _predict(self, x: torch.Tensor, timestep: torch.Tensor) -> torch.Tensor:
         if self.label_dim == 0:
             labels = None
+        elif self.class_idx == "random":
+            if (
+                self._random_class_labels is None
+                or self._random_class_labels.shape[0] < x.shape[0]
+            ):
+                self.set_random_class_labels(x.shape[0], device=x.device)
+            labels = self._random_class_labels[: x.shape[0]].to(
+                device=x.device, dtype=x.dtype
+            )
         else:
-            # NVIDIA's Precond uses the all-zero label vector when no class
-            # labels are supplied
             labels = torch.zeros(
                 (x.shape[0], self.label_dim), device=x.device, dtype=x.dtype
             )
+            if self.class_idx is not None:
+                labels[:, self.class_idx] = 1
         return self.unet(x, timestep, labels)
 
     def load_pretrained(self):
@@ -335,6 +371,7 @@ class PredictorEDM2Pretrained(PredictorEDM2):
             "normalize_x": self.normalize_x,
             "model_size": self.model_size.value,
             "pretrained_preset": self.model_size.value,
+            "class_idx": self.class_idx,
             "alpha_schedule": "ConstantAlphaSchedule",
             "sigma_schedule": "LinearSigmaSchedule",
             "eta_schedule": "ConstantEtaSchedule",

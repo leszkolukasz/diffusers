@@ -29,11 +29,13 @@ from src.generator import Generator
 from src.model import (
     VAE,
     Predictor,
+    PredictorEDM2Pretrained,
     PredictorHuggingface,
     PredictorMetadata,
     dataset_from_metadata,
     schedule_from_metadata,
 )
+from src.model.presets import EDM2_PRETRAINED_PRESETS, ModelSize
 from src.schedule import ScheduleGroup
 from src.schedule.sampling import (
     EDMSamplingSchedule,
@@ -54,6 +56,50 @@ def is_toy_dataset(dataset: DatasetType | None) -> bool:
     return (
         dataset is not None and DATASET_CONFIGS[dataset].dataset_class in TOY_DATASETS
     )
+
+
+def parse_class_idx(value: str | None) -> int | str | None:
+    if value is None:
+        return None
+    if value.lower() == "random":
+        return "random"
+    try:
+        return int(value)
+    except ValueError as error:
+        raise typer.BadParameter(
+            f"--class-idx must be an integer or 'random', got '{value}'."
+        ) from error
+
+
+def load_pretrained_edm2(
+    preset_name: str, class_idx: int | str | None = None
+) -> PredictorEDM2Pretrained:
+    try:
+        model_size = ModelSize.from_value(preset_name)
+    except ValueError as error:
+        available = ", ".join(size.value for size in EDM2_PRETRAINED_PRESETS)
+        raise typer.BadParameter(
+            f"Unknown pretrained EDM2 preset '{preset_name}'. Available: {available}"
+        ) from error
+
+    if model_size not in EDM2_PRETRAINED_PRESETS:
+        available = ", ".join(size.value for size in EDM2_PRETRAINED_PRESETS)
+        raise typer.BadParameter(
+            f"'{preset_name}' is not a pretrained EDM2 preset. Available: {available}"
+        )
+
+    preset = EDM2_PRETRAINED_PRESETS[model_size]
+    model = PredictorEDM2Pretrained(
+        n_channels=int(preset["img_channels"]),
+        img_width=int(preset["img_resolution"]),
+        img_height=int(preset["img_resolution"]),
+        T=1000,
+        normalize_x=True,
+        model_size=model_size,
+        class_idx=class_idx,
+    )
+    model.load_pretrained()
+    return model
 
 
 def save_generation_output(
@@ -99,6 +145,24 @@ def generate(
         None,
         "--model-id",
         help="HuggingFace repository ID. If given, a HuggingFace model is loaded.",
+    ),
+    pretrained: bool = typer.Option(
+        False,
+        "--pretrained",
+        help="Load an official NVIDIA EDM2 checkpoint directly.",
+    ),
+    pretrained_preset: str = typer.Option(
+        ModelSize.PRETRAINED_XS_IMG64.value,
+        "--pretrained-preset",
+        help="Official EDM2 preset to use with --pretrained.",
+    ),
+    class_idx: str | None = typer.Option(
+        None,
+        "--class-idx",
+        help=(
+            "ImageNet class id for a class-conditional pretrained EDM2 model, "
+            "or 'random' to sample one class per image."
+        ),
     ),
     schedule: ScheduleType | None = typer.Option(
         None,
@@ -154,15 +218,43 @@ def generate(
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Solver: {solver_name.value}")
     logger.info(f"Solver T: {solver_T if solver_T is not None else 'default'}")
+    parsed_class_idx = parse_class_idx(class_idx)
 
-    if model_id:
+    sources = int(bool(model_path)) + int(bool(model_id)) + int(pretrained)
+    if sources > 1:
+        logger.error(
+            "Use only one model source: '--model-path', '--model-id', or '--pretrained'."
+        )
+        raise typer.Exit(code=1)
+    if sources == 0:
+        logger.error(
+            "You must provide '--model-path', '--model-id', or '--pretrained'."
+        )
+        raise typer.Exit(code=1)
+
+    if pretrained:
+        logger.info(f"Loading pretrained EDM2 preset: {pretrained_preset}")
+        model = load_pretrained_edm2(
+            pretrained_preset, class_idx=parsed_class_idx
+        ).cuda()
+        if parsed_class_idx is None:
+            logger.warning(
+                "No --class-idx supplied for a class-conditional EDM2 checkpoint; "
+                "using the all-zero label vector."
+            )
+        if schedule is None:
+            schedule = ScheduleType.edm
+        elif schedule != ScheduleType.edm:
+            logger.warning(
+                "Official EDM2 checkpoints were trained with the EDM schedule; "
+                f"using --schedule {schedule.value} may give unexpected results."
+            )
+    elif model_id:
         logger.info(f"Loading HuggingFace model: {model_id}")
         model = PredictorHuggingface(model_id=model_id).cuda()
     else:
-        if not model_path:
-            logger.error("You must provide either '--model-path' or '--model-id'.")
+        if model_path is None:
             raise typer.Exit(code=1)
-
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
 
@@ -304,7 +396,10 @@ def generate(
 
     metadata = {
         "n_samples": n_samples,
-        "model_path": model_path,
+        "model_path": f"pretrained:{pretrained_preset}"
+        if pretrained
+        else model_path,
+        "class_idx": parsed_class_idx if pretrained else None,
         "solver": solver_name.value,
         "schedule": schedule.value,
         "sampling_schedule": sampling_schedule.value,
@@ -320,6 +415,13 @@ def generate(
         with torch.no_grad():
             for start in range(0, n_samples, batch_size):
                 current = min(batch_size, n_samples - start)
+                if (
+                    isinstance(model, PredictorEDM2Pretrained)
+                    and model.class_idx == "random"
+                ):
+                    model.set_random_class_labels(
+                        current, device=next(model.parameters()).device
+                    )
                 chunk = generator.generate(
                     n_samples=current,
                     verbose=start == 0,

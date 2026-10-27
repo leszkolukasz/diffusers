@@ -9,6 +9,7 @@ class ModelSize(str, Enum):
     LARGE = "large"
     POINT = "point"
     PRETRAINED_XS_IMG64 = "PRETRAINED_XS_IMG64"
+    PRETRAINED_S_IMG64 = "PRETRAINED_S_IMG64"
 
     @classmethod
     def from_value(cls, value: str) -> "ModelSize":
@@ -106,7 +107,7 @@ EDM2_PRESETS: dict[ModelSize, dict[str, Any]] = {
 
 
 EDM2_PRETRAINED_PRESETS: dict[ModelSize, dict[str, Any]] = {
-    ModelSize.PRETRAINED_XS_IMG64: {
+    ModelSize.PRETRAINED_XS_IMG64: {  # 125M params
         "checkpoint_url": (
             "https://nvlabs-fi-cdn.nvidia.com/edm2/posthoc-reconstructions/"
             "edm2-img64-xs-0134217-0.110.pkl"
@@ -117,6 +118,22 @@ EDM2_PRETRAINED_PRESETS: dict[ModelSize, dict[str, Any]] = {
         "label_dim": 1000,
         "unet": {
             "model_channels": 128,
+            "channel_mult": [1, 2, 3, 4],
+            "num_blocks": 3,
+            "attn_resolutions": [16, 8],
+        },
+    },
+    ModelSize.PRETRAINED_S_IMG64: {
+        "checkpoint_url": (
+            "https://nvlabs-fi-cdn.nvidia.com/edm2/posthoc-reconstructions/"
+            "edm2-img64-s-1073741-0.075.pkl"
+        ),
+        "checkpoint_size": 560558535,
+        "img_resolution": 64,
+        "img_channels": 3,
+        "label_dim": 1000,
+        "unet": {
+            "model_channels": 192,
             "channel_mult": [1, 2, 3, 4],
             "num_blocks": 3,
             "attn_resolutions": [16, 8],
