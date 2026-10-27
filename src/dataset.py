@@ -33,11 +33,14 @@ def get_dataloader(
     if is_toy_dataset:
         transform = None
     else:
-        transform = transforms.Compose(
+        transform_steps = [
+            transforms.Resize(dataset_config.img_size),
+            transforms.CenterCrop(dataset_config.img_size),
+        ]
+        if dataset_config.horizontal_flip:
+            transform_steps.append(transforms.RandomHorizontalFlip(p=0.5))
+        transform_steps.extend(
             [
-                transforms.Resize(dataset_config.img_size),
-                transforms.CenterCrop(dataset_config.img_size),
-                transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ToTensor(),
                 transforms.Lambda(
                     lambda x: (
@@ -49,6 +52,7 @@ def get_dataloader(
                 transforms.Normalize(mean=(0.5,), std=(0.5,)),
             ]
         )
+        transform = transforms.Compose(transform_steps)
 
     dataset_kwargs: dict[str, Any] = (
         deepcopy(dataset_config.kwargs) if dataset_config.kwargs is not None else {}

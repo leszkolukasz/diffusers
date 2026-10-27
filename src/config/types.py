@@ -79,6 +79,7 @@ class DatasetConfig:
     split: str | None = None
     path: str | None = None
     kwargs: dict | None = None
+    horizontal_flip: bool = False
 
 
 @dataclass

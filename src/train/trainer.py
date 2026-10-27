@@ -66,6 +66,7 @@ class TrainingConfig:
     use_amp: bool = True  # Automatic Mixed Precision
     use_bf16: bool = False
     uncertainty_loss: bool = False
+    force_finite: bool = True
     dataset: str | None = None
     enable_wandb: bool = False
 
@@ -380,6 +381,17 @@ class Trainer:
 
                 if self.scaler.is_enabled():
                     self.scaler.unscale_(self.optimizer)
+
+                if self.config.force_finite:
+                    for parameter in self.raw_model.parameters():
+                        if parameter.grad is not None:
+                            torch.nan_to_num(
+                                parameter.grad,
+                                nan=0.0,
+                                posinf=0.0,
+                                neginf=0.0,
+                                out=parameter.grad,
+                            )
 
                 torch.nn.utils.clip_grad_norm_(
                     self.raw_model.parameters(), max_norm=1.0
