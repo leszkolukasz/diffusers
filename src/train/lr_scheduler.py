@@ -1,5 +1,29 @@
+from enum import StrEnum
+
+import numpy as np
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+
+
+class LRSchedule(StrEnum):
+    WARMUP_COSINE = "warmup_cosine"
+    EDM2 = "edm2"
+
+
+def edm2_learning_rate(
+    *,
+    cur_nimg: int,
+    ref_lr: float,
+    ref_batches: int = 35000,
+    ref_batch_size: int = 2048,
+    rampup_mimg: float = 10.0,
+) -> float:
+    lr = ref_lr
+    if ref_batches > 0:
+        lr /= np.sqrt(max(cur_nimg / (ref_batches * ref_batch_size), 1))
+    if rampup_mimg > 0:
+        lr *= min(cur_nimg / (rampup_mimg * 1e6), 1)
+    return float(lr)
 
 
 class WarmupCosineLR(SequentialLR):

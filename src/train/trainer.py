@@ -21,7 +21,12 @@ from src.distributed import get_rank, get_world_size, is_distributed
 from src.model import VAE, PredictionTarget, Predictor, PredictorMetadata
 from src.schedule import ScheduleGroup
 from src.timestep import Timestep
-from src.train import ExpMovingAverageWrapper, WarmupCosineLR
+from src.train import (
+    ExpMovingAverageWrapper,
+    LRSchedule,
+    WarmupCosineLR,
+    edm2_learning_rate,
+)
 from src.train.checkpoint import snapshot_stem, snapshot_steps
 
 EPSILON = 1e-3
@@ -45,6 +50,11 @@ class TimeSampler(StrEnum):
 class TrainingConfig:
     epochs: int = 1000
     lr: float = 1e-4
+    lr_schedule: LRSchedule = LRSchedule.WARMUP_COSINE
+    lr_ref_batches: int = 35000
+    lr_ref_batch_size: int = 2048
+    lr_rampup_mimg: float = 10.0
+    gradient_accumulation_steps: int = 1
     checkpoint_dir: str = "models/"
     checkpoint_interval_steps: int = 100
     checkpoint_snapshot_percent: float = 5.0
@@ -93,7 +103,11 @@ class Trainer:
         self.schedules = schedules
         self.config = config
 
-        self.optimizer = optim.AdamW(self.raw_model.parameters(), lr=self.config.lr)
+        self.optimizer = optim.Adam(
+            self.raw_model.parameters(),
+            lr=self.config.lr,
+            betas=(0.9, 0.99),
+        )
         self.criterion = nn.MSELoss(reduction="none")
 
         # self.amp_dtype = (
@@ -192,7 +206,9 @@ class Trainer:
         device = next(self.model.parameters()).device
         predictor_T = self.raw_model.timestep_config.T
 
-        total_training_steps = self.config.epochs * len(dataloader)
+        accumulation_steps = self.config.gradient_accumulation_steps
+        steps_per_epoch = (len(dataloader) + accumulation_steps - 1) // accumulation_steps
+        total_training_steps = self.config.epochs * steps_per_epoch
         snapshot_at_steps = snapshot_steps(
             total_training_steps, self.config.checkpoint_snapshot_percent
         )
@@ -208,10 +224,31 @@ class Trainer:
                 + ", ".join(str(step) for step in snapshot_at_steps)
             )
 
-        lr_scheduler = WarmupCosineLR(
-            self.optimizer,
-            total_steps=total_training_steps,
-            last_epoch=self.total_steps_executed,
+        lr_scheduler = None
+        if self.config.lr_schedule == LRSchedule.WARMUP_COSINE:
+            lr_scheduler = WarmupCosineLR(
+                self.optimizer,
+                total_steps=total_training_steps,
+                last_epoch=self.total_steps_executed,
+            )
+        elif self.config.lr_schedule == LRSchedule.EDM2:
+            logger.info(
+                "Using EDM2 learning-rate schedule: "
+                f"ref_batches={self.config.lr_ref_batches}, "
+                f"ref_batch_size={self.config.lr_ref_batch_size}, "
+                f"rampup={self.config.lr_rampup_mimg}M images"
+            )
+        else:
+            raise ValueError(f"Unknown LR schedule: {self.config.lr_schedule}")
+
+        batch_size = (
+            int(dataloader.batch_size or 1)
+            * get_world_size()
+            * accumulation_steps
+        )
+        logger.info(
+            f"Using effective batch size {batch_size} "
+            f"({accumulation_steps} accumulation step(s)) for LR schedule"
         )
 
         ema_wrapper = None
@@ -243,6 +280,10 @@ class Trainer:
                 dataloader.sampler.set_epoch(epoch)  # ty: ignore
 
             total_loss = 0.0
+            optimizer_steps_in_epoch = 0
+            accumulated_loss = 0.0
+            accumulation_count = 0
+            num_batches = len(dataloader)
             pbar = tqdm(
                 dataloader,
                 desc=f"Epoch {epoch + 1}/{self.config.epochs}",
@@ -253,7 +294,8 @@ class Trainer:
             for batch_idx, (X, _) in enumerate(pbar):
                 data_time = time.time() - end_time
 
-                self.optimizer.zero_grad()
+                if accumulation_count == 0:
+                    self.optimizer.zero_grad()
 
                 X = X.to(device, non_blocking=True)
                 if self.vae is not None:
@@ -321,7 +363,20 @@ class Trainer:
                         loss = squared_error * weight
                     loss = loss.mean()
 
+                group_start = batch_idx - accumulation_count
+                group_size = min(accumulation_steps, num_batches - group_start)
+                loss = loss / group_size
+
                 self.scaler.scale(loss).backward()
+                accumulated_loss += loss.detach().float() * group_size
+                accumulation_count += 1
+
+                if (
+                    accumulation_count < accumulation_steps
+                    and batch_idx != num_batches - 1
+                ):
+                    end_time = time.time()
+                    continue
 
                 if self.scaler.is_enabled():
                     self.scaler.unscale_(self.optimizer)
@@ -330,9 +385,22 @@ class Trainer:
                     self.raw_model.parameters(), max_norm=1.0
                 )
 
+                if self.config.lr_schedule == LRSchedule.EDM2:
+                    cur_nimg = (self.total_steps_executed + 1) * batch_size
+                    lr = edm2_learning_rate(
+                        cur_nimg=cur_nimg,
+                        ref_lr=self.config.lr,
+                        ref_batches=self.config.lr_ref_batches,
+                        ref_batch_size=self.config.lr_ref_batch_size,
+                        rampup_mimg=self.config.lr_rampup_mimg,
+                    )
+                    for param_group in self.optimizer.param_groups:
+                        param_group["lr"] = lr
+
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                lr_scheduler.step()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
 
                 unet_compute_time = (
                     time.time() - end_time - data_time - vae_compute_time
@@ -345,8 +413,11 @@ class Trainer:
                 ):
                     ema_wrapper.update(self.raw_model, step=self.total_steps_executed)
 
+                step_loss = accumulated_loss / accumulation_count
+                accumulated_loss = 0.0
+                accumulation_count = 0
                 with torch.no_grad():
-                    loss_to_log = loss.detach().clone()
+                    loss_to_log = step_loss.detach().clone()
                     if is_distributed():
                         torch.distributed.all_reduce(
                             loss_to_log, op=torch.distributed.ReduceOp.SUM
@@ -354,7 +425,8 @@ class Trainer:
                         loss_to_log /= get_world_size()
 
                 total_loss += loss_to_log.item()
-                avg_loss = total_loss / (batch_idx + 1)
+                optimizer_steps_in_epoch += 1
+                avg_loss = total_loss / optimizer_steps_in_epoch
                 pbar.set_postfix({"loss": avg_loss})
 
                 if should_log_metrics(
@@ -363,7 +435,7 @@ class Trainer:
                     enable_wandb=self.config.enable_wandb,
                 ):
                     self._log_metrics(
-                        loss=loss.item(),
+                        loss=step_loss.item(),
                         avg_loss=avg_loss,
                         lr=self.optimizer.param_groups[0]["lr"],
                         epoch=epoch,

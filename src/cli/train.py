@@ -22,7 +22,7 @@ from src.dataset import get_dataloader
 from src.model import VAE, PredictionTarget
 from src.model.presets import ModelSize
 from src.schedule import ScheduleGroup
-from src.train import Trainer, TrainingConfig
+from src.train import LRSchedule, Trainer, TrainingConfig
 from src.train.checkpoint import resolve_snapshot_paths
 
 app = typer.Typer(help="Train model")
@@ -65,10 +65,36 @@ def train(
         help="Stochasticity",
     ),
     batch_size: int = typer.Option(128, "--batch-size", help="Batch size"),
+    gradient_accumulation_steps: int = typer.Option(
+        1,
+        "--gradient-accumulation-steps",
+        help="Number of micro-batches per optimizer step.",
+    ),
     predictor_t: int = typer.Option(
         1000, "--predictor-t", help="Max time step predictor is trained on"
     ),
     n_epochs: int = typer.Option(1000, "--n-epochs", help="Number of epochs"),
+    lr_schedule: LRSchedule | None = typer.Option(
+        None,
+        "--lr-schedule",
+        help=(
+            "Learning-rate schedule. Defaults to EDM2 for EDM2 models "
+            "and warmup_cosine otherwise."
+        ),
+    ),
+    lr_ref_batches: int = typer.Option(
+        35000, "--lr-ref-batches", help="EDM2 LR reference batch count."
+    ),
+    lr_ref_batch_size: int = typer.Option(
+        2048,
+        "--lr-ref-batch-size",
+        help="Batch size used to define --lr-ref-batches.",
+    ),
+    lr_rampup_mimg: float = typer.Option(
+        10.0,
+        "--lr-rampup-mimg",
+        help="EDM2 LR ramp-up length in millions of images.",
+    ),
     checkpoint_interval: int = typer.Option(
         100, "--checkpoint-interval", help="save a checkpoint every N steps"
     ),
@@ -286,6 +312,9 @@ def train(
         )
 
     is_edm2 = model_name in (ModelType.edm2, ModelType.edm2_pretrained)
+    if lr_schedule is None:
+        lr_schedule = LRSchedule.EDM2 if is_edm2 else LRSchedule.WARMUP_COSINE
+    logger.info(f"Learning-rate schedule: {lr_schedule.value}")
 
     trainer = Trainer(
         model=model,
@@ -303,6 +332,11 @@ def train(
             ema_halflife_ratio=ema_halflife_ratio,
             ema_warmup_ratio=ema_warmup_ratio,
             lr=1e-2 if is_edm2 else 1e-4,
+            lr_schedule=lr_schedule,
+            lr_ref_batches=lr_ref_batches,
+            lr_ref_batch_size=lr_ref_batch_size,
+            lr_rampup_mimg=lr_rampup_mimg,
+            gradient_accumulation_steps=gradient_accumulation_steps,
             dataset=dataset.value,
             enable_wandb=enable_wandb,
         ),
