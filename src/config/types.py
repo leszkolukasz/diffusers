@@ -53,6 +53,7 @@ class DatasetType(str, Enum):
     fashion = "fashion"
     cifar10 = "cifar10"
     cifar10_test = "cifar10_test"
+    imagenet64 = "imagenet64"
     celeb = "celeb"
     flowers = "flowers"
     stl10 = "stl10"

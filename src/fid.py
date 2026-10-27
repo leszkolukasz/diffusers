@@ -161,6 +161,9 @@ def materialize_dataset_images(
         if not Path(config.path).is_dir():
             raise FileNotFoundError(f"Dataset directory not found: {config.path}")
         dataset: Any = datasets.ImageFolder(root=config.path, transform=None)
+        count = min(num_images, len(dataset))
+
+        indices = random.Random(42).sample(range(len(dataset)), count)
     else:
         kwargs = dict(config.kwargs or {})
         if config.split is not None:
@@ -172,13 +175,14 @@ def materialize_dataset_images(
             transform=None,
             **kwargs,
         )
+        count = min(num_images, len(dataset))
+        indices = list(range(count))
 
-    count = min(num_images, len(dataset))
-    for index in tqdm(range(count), desc="Materializing real images"):
+    for out_index, index in enumerate(tqdm(indices, desc="Materializing real images")):
         image, _ = dataset[index]
         if not isinstance(image, Image.Image):
             image = to_pil_image(image)
-        image.convert("RGB").save(out / f"{index:06d}.png")
+        image.convert("RGB").save(out / f"{out_index:06d}.png")
 
     return out
 
