@@ -18,6 +18,7 @@ from src.timestep import Timestep, TimestepConfig
 class ETSConfig:
     n_grid_steps: int = 200
     n_monte_carlo_iter: int = 256
+    t_min: float = 0.002
     device: torch.device = get_device()
     save_file: str = "generated/ets_timesteps.pth"
 
@@ -64,7 +65,7 @@ class ETSSamplingSchedule(SamplingSchedule):
 
     def _estimate_rescaled_entropy(self) -> tuple[torch.Tensor, torch.Tensor]:
         t_grid = torch.linspace(
-            0.0, self.max_t, self.config.n_grid_steps + 1, device=self.config.device
+            self.t_min, self.max_t, self.config.n_grid_steps + 1, device=self.config.device
         )
         R = torch.zeros(self.config.n_grid_steps + 1, device=self.config.device)
 
