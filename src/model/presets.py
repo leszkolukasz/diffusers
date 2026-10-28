@@ -123,7 +123,7 @@ EDM2_PRETRAINED_PRESETS: dict[ModelSize, dict[str, Any]] = {
             "attn_resolutions": [16, 8],
         },
     },
-    ModelSize.PRETRAINED_S_IMG64: {
+    ModelSize.PRETRAINED_S_IMG64: {  # 280M params
         "checkpoint_url": (
             "https://nvlabs-fi-cdn.nvidia.com/edm2/posthoc-reconstructions/"
             "edm2-img64-s-1073741-0.075.pkl"

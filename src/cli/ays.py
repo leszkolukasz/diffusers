@@ -38,6 +38,7 @@ from src.schedule.sampling import (
     GaussKLUBOptimalSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
+    QuadraticSamplingSchedule,
 )
 from src.schedule.sampling.ays import (
     AYSConfig,
@@ -63,6 +64,8 @@ def build_baseline_steps(
             schedule = EDMSamplingSchedule(T=max_t)
         elif name == SamplingScheduleType.linear:
             schedule = LinearSamplingSchedule(T=max_t, max_t=max_t)
+        elif name == SamplingScheduleType.quadratic:
+            schedule = QuadraticSamplingSchedule(T=max_t, max_t=max_t)
         elif name == SamplingScheduleType.logsnr_linear:
             if schedules is None:
                 raise ValueError("schedules are required for logsnr_linear")
@@ -130,9 +133,15 @@ def tune(
         "--initial-schedule",
         help="Initial time sampling",
     ),
+    max_t: float = typer.Option(
+        80.0,
+        "--max-t",
+        help="Maximum noise/time level of the initial sampling schedule",
+    ),
     checkpoint_path: str | None = typer.Option(
         None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
     ),
+    prefix: str | None = typer.Option(None, "--prefix", help="Prefix for checkpoint"),
     suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),
     max_iter: int = typer.Option(
         32, "--max-iter", help="Max iterations for 10-step stage"
@@ -276,12 +285,28 @@ def tune(
         vae = VAE(model_id=vae_model_id, low_memory=vae_low_memory).cuda()
 
     if initial_sampling_schedule == SamplingScheduleType.edm:
-        initial_t = EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
+        initial_t = (
+            EDMSamplingSchedule(T=solver_T, sigma_max=max_t)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
     elif initial_sampling_schedule == SamplingScheduleType.linear:
-        initial_t = LinearSamplingSchedule(T=solver_T).get_timesteps(n_steps=10).cuda()
+        initial_t = (
+            LinearSamplingSchedule(T=solver_T, max_t=max_t)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
+    elif initial_sampling_schedule == SamplingScheduleType.quadratic:
+        initial_t = (
+            QuadraticSamplingSchedule(T=solver_T, max_t=max_t)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
     elif initial_sampling_schedule == SamplingScheduleType.logsnr_linear:
         initial_t = (
-            LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T)
+            LinearLogSNRSamplingSchedule(
+                schedules=schedules, T=solver_T, max_t=max_t
+            )
             .get_timesteps(n_steps=10)
             .cuda()
         )
@@ -294,7 +319,11 @@ def tune(
             if initial_sampling_schedule == SamplingScheduleType.gauss_kl_optimal
             else GaussKLUBOptimalSamplingSchedule
         )
-        initial_t = optimal_cls(T=solver_T, c=c).get_timesteps(n_steps=10).cuda()
+        initial_t = (
+            optimal_cls(T=solver_T, c=c, max_t=max_t)
+            .get_timesteps(n_steps=10)
+            .cuda()
+        )
     else:
         raise ValueError(
             f"Unsupported initial schedule: {initial_sampling_schedule.value}"
@@ -314,6 +343,8 @@ def tune(
         model_stem,
         initial_sampling_schedule.value,
     ]
+    if prefix:
+        parts.insert(0, prefix)
     if suffix:
         parts.append(suffix)
 
@@ -334,6 +365,7 @@ def tune(
     )
 
     ays_schedule = AYSSamplingSchedule(
+        max_t=max_t,
         model=model,
         schedules=schedules,
         solver_T=solver_T,
@@ -382,6 +414,7 @@ def plot(
 
     state = torch.load(checkpoint_path, weights_only=False, map_location="cpu")
     ays_steps = state["steps"].numpy()[::-1]
+    logger.info(f"AYS steps: {ays_steps}")
 
     n_steps = len(ays_steps) - 1
     max_t = ays_steps[-1]
@@ -451,7 +484,7 @@ def plot(
     plt.xlabel("Step Index")
     plt.ylabel("Timestep (t)")
 
-    plt.yscale("symlog", linthresh=1e-3)
+    # plt.yscale("symlog", linthresh=1e-3)
 
     plt.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.legend()

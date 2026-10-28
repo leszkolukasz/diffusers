@@ -36,7 +36,7 @@ class CandidateSpacing(str, Enum):
 
 @dataclass
 class AYSConfig:
-    max_iter: int = 32
+    max_iter: int = 128
     max_finetune_iter: int = 16
     device: torch.device = field(default_factory=get_device)
     n_candidates: int = 11

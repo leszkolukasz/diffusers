@@ -27,6 +27,7 @@ class ScheduleType(str, Enum):
 
 class SamplingScheduleType(str, Enum):
     linear = "linear"
+    quadratic = "quadratic"
     edm = "edm"
     logsnr_linear = "logsnr_linear"
     gauss_kl_optimal = "gauss_kl_optimal"

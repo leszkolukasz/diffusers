@@ -43,6 +43,7 @@ from src.schedule.sampling import (
     GaussKLUBOptimalSamplingSchedule,
     LinearLogSNRSamplingSchedule,
     LinearSamplingSchedule,
+    QuadraticSamplingSchedule,
     Timestep,
     TimestepConfig,
 )
@@ -388,6 +389,12 @@ def generate(
         case SamplingScheduleType.linear:
             scheduler = LinearSamplingSchedule(T=solver_T)
             generator_kwargs["timesteps"] = scheduler.get_timesteps(  # , max_t = ...
+                n_steps=n_steps
+            ).cuda()
+            logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
+        case SamplingScheduleType.quadratic:
+            scheduler = QuadraticSamplingSchedule(T=solver_T)
+            generator_kwargs["timesteps"] = scheduler.get_timesteps(
                 n_steps=n_steps
             ).cuda()
             logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
