@@ -91,8 +91,8 @@ def fid(
 
     if metric == FIDMetric.all:
         for name, score in evaluator.evaluate_all().items():
-            logger.success(f"{name}: {score:.4f}")
+            logger.success(f"{name}: {score:.8g}")
         return
 
     score = evaluator.evaluate(metric)
-    logger.success(f"{metric.value}: {score:.4f}")
+    logger.success(f"{metric.value}: {score:.8g}")

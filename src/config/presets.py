@@ -106,7 +106,7 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         datasets.ImageFolder,
         3,
         64,
-        path=os.environ.get("IMAGENET64_PATH", "data/imagenet64"),
+        path=os.environ.get("IMAGENET64_PATH", "data/imagenet64_val"),
     ),
     DatasetType.celeb: DatasetConfig(datasets.CelebA, 3, 256, path="data/celebA"),
     DatasetType.flowers: DatasetConfig(datasets.Flowers102, 3, 64),

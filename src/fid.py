@@ -103,7 +103,7 @@ class FIDEvaluator:
     def _get_image_files(self, path: Path) -> list[Path]:
         return sorted(
             file
-            for file in path.iterdir()
+            for file in path.rglob("*")
             if file.is_file() and file.suffix.lower() in VALID_EXTENSIONS
         )
 

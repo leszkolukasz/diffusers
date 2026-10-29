@@ -40,10 +40,10 @@ class AYSConfig:
     max_finetune_iter: int = 16
     device: torch.device = field(default_factory=get_device)
     n_candidates: int = 11
-    n_monte_carlo_iter: int = 4096
+    n_monte_carlo_iter: int = 1024
     save_interval_iter: int = 10
     importance_sampling: bool = True
-    inverse_transform_sampling_grid_size: int = 2048
+    inverse_transform_sampling_grid_size: int = 4096
     candidate_spacing: CandidateSpacing = CandidateSpacing.linear
     save_file: str = "generated/ays_timesteps.pth"
 

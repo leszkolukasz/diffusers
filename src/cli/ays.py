@@ -144,7 +144,7 @@ def tune(
     prefix: str | None = typer.Option(None, "--prefix", help="Prefix for checkpoint"),
     suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),
     max_iter: int = typer.Option(
-        32, "--max-iter", help="Max iterations for 10-step stage"
+        128, "--max-iter", help="Max iterations for 10-step stage"
     ),
     max_finetune_iter: int = typer.Option(
         16, "--max-finetune-iter", help="Max fine tune iterations for 20/40-step stage"
@@ -158,7 +158,7 @@ def tune(
         help="Candidate spacing within each interval: linear or log in t.",
     ),
     n_monte_carlo_iter: int = typer.Option(
-        4096, "--n-mc-iter", help="Number of Monte Carlo steps"
+        1024, "--n-mc-iter", help="Number of Monte Carlo steps"
     ),
     save_interval_iter: int = typer.Option(
         1, "--save-interval", help="Checkpoint frequency"
@@ -169,7 +169,7 @@ def tune(
         help="Use importance sampling for AYS",
     ),
     its_grid_size: int = typer.Option(
-        2000, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
+        4096, "--its-grid-size", help="Grid size for Inverse Transform Sampling"
     ),
     vae_low_memory: bool = typer.Option(
         False, "--vae-low-memory", help="Enable low memory mode for VAE"
@@ -304,9 +304,7 @@ def tune(
         )
     elif initial_sampling_schedule == SamplingScheduleType.logsnr_linear:
         initial_t = (
-            LinearLogSNRSamplingSchedule(
-                schedules=schedules, T=solver_T, max_t=max_t
-            )
+            LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T, max_t=max_t)
             .get_timesteps(n_steps=10)
             .cuda()
         )
@@ -320,9 +318,7 @@ def tune(
             else GaussKLUBOptimalSamplingSchedule
         )
         initial_t = (
-            optimal_cls(T=solver_T, c=c, max_t=max_t)
-            .get_timesteps(n_steps=10)
-            .cuda()
+            optimal_cls(T=solver_T, c=c, max_t=max_t).get_timesteps(n_steps=10).cuda()
         )
     else:
         raise ValueError(

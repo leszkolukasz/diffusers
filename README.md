@@ -8,18 +8,37 @@ Project uses `uv` to manage python dependencies. To install dependencies, run:
 uv sync
 ```
 
+### ImageNet
+
+To get the ImageNet ILSVRC 2012 64x64 dataset, use `./scripts/download_imagenet64_hf.sh`.
+
+The script defaults to the validation split. Pass `train` to fetch the training split:
+
+```bash
+./scripts/download_imagenet64_hf.sh validation
+./scripts/download_imagenet64_hf.sh train
+```
+
+Validation is saved to `data/imagenet64_val`; train to `data/imagenet64_train`.
+
+Note that this requires a checkout of the NVlabs/EDM2 repository. You can either set `EDM2_REPO` to the path of your checkout or let the script auto-detect it.
+
 ## Usage
 
-Project contains three commands:
+Project contains four commands:
 - `train`: Train a diffusion model.
 - `generate`: Generate samples from a trained diffusion model.
 - `ays`: Find optimal steps using Align Your Steps.
+- `fid`: Compute FID, CLIP-FID or KID.
 
 Each command has its own set of arguments. Use `--help` to see them.
 
-For generation, `--model-id` selects a HuggingFace model; otherwise `--model-path`
-loads a local checkpoint. The noise schedule defaults to the one stored in the
-model metadata and can be overridden with `--schedule`.
+For generation, `--model-id` selects a HuggingFace model, `--model-path`
+loads a local checkpoint, and `--pretrained` loads an official EDM2 checkpoint.
+Use `--resume` to continue generation from the last completed batch.
+
+`--sampling-schedule` accepts `linear`, `quadratic`, `edm`, `logsnr_linear`,
+`gauss_kl_optimal`, `gauss_klub_optimal`, `discrete` and `custom`.
 
 ## Examples
 
@@ -82,6 +101,54 @@ uv run main.py generate \
     --equation generalized_discrete \
     --solver discrete \
     --model-id "1aurent/ddpm-mnist"
+```
+
+### EDM2 pretrained model
+
+Generate with:
+```
+uv run main.py generate \
+    --pretrained \
+    --pretrained-preset PRETRAINED_S_IMG64 \
+    --class-idx random \
+    --schedule edm \
+    --sampling-schedule edm \
+    --equation probability_flow \
+    --solver heun \
+    --n-steps 32 \
+    --n-samples 1 \
+    --batch-size 8 \
+    --output generated/imagenet64_s
+```
+
+### FID
+
+Compute with:
+```
+uv run main.py fid \
+    --gen-path generated/imagenet64_s \
+    --real-path data/imagenet64_val_edm2 \
+    --metric fid
+```
+
+For EDM2 reference statistics use `calculate_metrics.py` from the EDM2 repo
+with `img64.pkl`.
+
+### AYS
+
+Tune with:
+```
+uv run main.py ays tune \
+    --model-path ./models/model.pth \
+    --initial-schedule quadratic \
+    --max-t 80 \
+    --prefix exp5 \
+    --suffix s10
+```
+
+Plot with:
+```
+uv run main.py ays plot generated/exp5_ays_model_quadratic_s10.pth --compare quadratic
 ```
 
 ### Train on ICM
