@@ -92,7 +92,7 @@ EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
     EquationType.score_sde: ScoreSDE,
 }
 
-N_SAMPLES = 10000
+N_SAMPLES = 100000
 
 PATTERN_DATASET_KWARGS = {
     "num_samples": N_SAMPLES,

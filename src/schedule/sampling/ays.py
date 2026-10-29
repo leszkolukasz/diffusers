@@ -93,10 +93,23 @@ class AYSSamplingSchedule(SamplingSchedule):
         os.makedirs(os.path.dirname(self.config.save_file), exist_ok=True)
         torch.save(state, self.config.save_file)
 
+    def _save_final_state(
+        self, timesteps: Timestep, stage: int, current_iter: int, n_steps: int
+    ):
+        state = {
+            "steps": timesteps.steps.cpu().to(torch.float32),
+            "stage": stage,
+            "current_iter": current_iter,
+            "candidate_spacing": self.config.candidate_spacing.value,
+            "append_zero": getattr(self, "append_zero", False),
+            "n_steps": n_steps,
+        }
+        os.makedirs(os.path.dirname(self.config.save_file), exist_ok=True)
+        torch.save(state, self.config.save_file)
+
     def get_timesteps(
         self, n_steps: int = 40, *, initial_t: Timestep | None = None, **kwargs
     ) -> Timestep:
-        assert n_steps >= 10
         append_zero = False
 
         stage = STAGE_10
@@ -185,6 +198,9 @@ class AYSSamplingSchedule(SamplingSchedule):
                 skip_even=not is_first_stage,
             )
 
+            if n_steps <= STAGE_10:
+                break
+
             if (stage >= n_steps and not is_first_stage) or stage == STAGE_40:
                 break
 
@@ -206,7 +222,7 @@ class AYSSamplingSchedule(SamplingSchedule):
                 ),
             )
 
-        self._save_state(steps, stage, self.config.max_finetune_iter)
+        self._save_final_state(result, stage, self.config.max_finetune_iter, n_steps)
 
         return result
 

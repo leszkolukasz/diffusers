@@ -141,8 +141,15 @@ def tune(
     checkpoint_path: str | None = typer.Option(
         None, "--checkpoint-path", help="Path to resume AYS tuning from a checkpoint"
     ),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Save the final interpolated schedule to this file.",
+    ),
     prefix: str | None = typer.Option(None, "--prefix", help="Prefix for checkpoint"),
     suffix: str | None = typer.Option(None, "--suffix", help="Suffix for checkpoint"),
+    n_steps: int = typer.Option(40, "--n-steps", help="Number of output steps"),
     max_iter: int = typer.Option(
         128, "--max-iter", help="Max iterations for 10-step stage"
     ),
@@ -181,6 +188,7 @@ def tune(
     logger.info("Starting the AYS Generation")
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Initial Sampling Schedule: {initial_sampling_schedule.value}")
+    logger.info(f"Number of output steps: {n_steps}")
 
     if ideal_gaussian and (model_path or model_id):
         logger.error(
@@ -377,9 +385,22 @@ def tune(
 
     logger.info("Starting AYS tuning")
 
-    timesteps = ays_schedule.get_timesteps(n_steps=40, initial_t=initial_t)
+    timesteps = ays_schedule.get_timesteps(n_steps=n_steps, initial_t=initial_t)
 
     logger.info(f"Final AYS schedule: {timesteps.steps}")
+
+    if output:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "steps": timesteps.steps.detach().cpu(),
+                "stage": n_steps,
+                "n_steps": n_steps,
+            },
+            output_path,
+        )
+        logger.success(f"Saved final AYS schedule to {output_path}")
 
 
 @app.command(name="plot", help="Plot generated AYS schedule")
@@ -412,7 +433,7 @@ def plot(
     ays_steps = state["steps"].numpy()[::-1]
     logger.info(f"AYS steps: {ays_steps}")
 
-    n_steps = len(ays_steps) - 1
+    n_steps = int(state.get("n_steps", len(ays_steps) - 1))
     max_t = ays_steps[-1]
     stage = state.get("stage", "Unknown")
 
