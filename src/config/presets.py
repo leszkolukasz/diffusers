@@ -94,6 +94,12 @@ EQUATION_CONFIGS: dict[EquationType, type[Equation]] = {
 
 N_SAMPLES = 10000
 
+PATTERN_DATASET_KWARGS = {
+    "num_samples": N_SAMPLES,
+    "gaussian": True,
+    "gaussian_sigma": 0.5,
+}
+
 # Image sizes should be divisible by 8.
 DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
     DatasetType.mnist: DatasetConfig(datasets.MNIST, 1, 32),
@@ -122,43 +128,43 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/spiral.png"},
     ),
     DatasetType.pattern_spiral5: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral5.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/spiral5.png"},
     ),
     DatasetType.pattern_x: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/x.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/x.png"},
     ),
     DatasetType.pattern_beehive: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/beehive.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/beehive.png"},
     ),
     DatasetType.pattern_gaussian_8x8: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_8x8.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/gaussian_8x8.png"},
     ),
     DatasetType.pattern_gaussian_8x4: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_8x4.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/gaussian_8x4.png"},
     ),
     DatasetType.pattern_gaussian_6x6: DatasetConfig(
         PatternDataset,
         2,
         1,
-        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_6x6.png"},
+        kwargs={**PATTERN_DATASET_KWARGS, "pattern_path": "assets/gaussian_6x6.png"},
     ),
 }
 

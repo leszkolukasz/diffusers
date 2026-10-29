@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -46,6 +47,36 @@ def validate_pattern_samples(samples: torch.Tensor) -> np.ndarray:
     return samples.reshape(samples.shape[0], 2).numpy()
 
 
+def load_gmm_components(
+    pattern_path: str | Path,
+) -> tuple[torch.Tensor, torch.Tensor, tuple[int, int]]:
+    density = load_pattern_density(pattern_path)
+    rows, cols = np.nonzero(density)
+    means = torch.from_numpy(np.stack([cols, rows], axis=1).astype(np.float32))
+    weights = torch.from_numpy(density[rows, cols].astype(np.float32))
+    return means, weights, density.shape
+
+
+def compute_gmm_nll(
+    points: torch.Tensor,
+    means: torch.Tensor,
+    weights: torch.Tensor,
+    sigma: float,
+    chunk_size: int = 256,
+) -> float:
+    log_weights = torch.log(weights)
+    log_norm = math.log(2 * math.pi * sigma**2)
+    total = 0.0
+
+    for start in range(0, len(points), chunk_size):
+        chunk = points[start : start + chunk_size]
+        squared_distance = torch.cdist(chunk, means).pow(2)
+        log_prob = log_weights - log_norm - squared_distance / (2 * sigma**2)
+        total += -torch.logsumexp(log_prob, dim=1).sum().item()
+
+    return total / len(points)
+
+
 def compute_density_map(points: np.ndarray, bins: tuple[int, int]) -> np.ndarray:
     height, width = bins
     density, _, _ = np.histogram2d(
@@ -89,6 +120,16 @@ def pattern_path_from_dataset(dataset: DatasetType | None) -> str:
     return "assets/spiral.png"
 
 
+def gaussian_sigma_from_dataset(dataset: DatasetType | None) -> float:
+    if dataset is not None:
+        kwargs = DATASET_CONFIGS[dataset].kwargs or {}
+        sigma = kwargs.get("gaussian_sigma")
+        if isinstance(sigma, (int, float)):
+            return float(sigma)
+    print(dataset)
+    raise ValueError("Dataset does not specify a gaussian_sigma value.")
+
+
 def pattern(
     samples_path: str = typer.Argument(
         ..., help="Path to the .pth with generated PatternDataset samples."
@@ -116,12 +157,44 @@ def pattern(
         "--share-scale/--per-panel-scale",
         help="Use one color scale for both panels.",
     ),
+    nll: bool = typer.Option(
+        True,
+        "--nll/--no-nll",
+        help="Compute the full Gaussian-mixture NLL.",
+    ),
+    nll_sigma: float | None = typer.Option(
+        None,
+        "--nll-sigma",
+        help="Gaussian sigma in pixels for NLL (default: dataset config).",
+    ),
 ):
+    nll_value = None
     try:
         samples, dataset = load_generated_samples(samples_path)
         points = validate_pattern_samples(samples)
         resolved_pattern_path = pattern_path or pattern_path_from_dataset(dataset)
         true_density = load_pattern_density(resolved_pattern_path)
+
+        if nll:
+            means, weights, (height, width) = load_gmm_components(resolved_pattern_path)
+            sigma = (
+                nll_sigma
+                if nll_sigma is not None
+                else gaussian_sigma_from_dataset(dataset)
+            )
+            points_tensor = torch.from_numpy(points)
+            points_pixel = torch.stack(
+                [
+                    (points_tensor[:, 0] + 1.0) * width / 2.0,
+                    (1.0 - points_tensor[:, 1]) * height / 2.0,
+                ],
+                dim=1,
+            )
+            nll_value = compute_gmm_nll(points_pixel, means, weights, sigma)
+            logger.info(
+                f"GMM NLL: {nll_value:.6f} "
+                f"(sigma={sigma:g} px, components={len(weights)})"
+            )
     except (FileNotFoundError, TypeError, ValueError) as exc:
         logger.error(str(exc))
         raise typer.Exit(code=1) from exc
@@ -156,11 +229,15 @@ def pattern(
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), dpi=110)
     extent = [-1.0, 1.0, -1.0, 1.0]
+    generated_title = f"Generated density (N={len(points)})"
+    if nll_value is not None:
+        generated_title += f"\nNLL={nll_value:.6f}"
+
     panels = (
         (true_density, "True pattern density", norms[0]),
         (
             generated_density,
-            f"Generated density (N={len(points)})",
+            generated_title,
             norms[1],
         ),
     )

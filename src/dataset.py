@@ -170,6 +170,8 @@ class PatternDataset(Dataset):
     pdf: np.ndarray
     h: int
     w: int
+    gaussian: bool
+    gaussian_sigma: float
 
     def __init__(
         self,
@@ -177,11 +179,15 @@ class PatternDataset(Dataset):
         num_samples: int,
         invert: bool = True,
         seed: int = 42,
+        gaussian: bool = False,
+        gaussian_sigma: float = 0.5,
         **kwargs,
     ):
         super().__init__()
         self.num_samples = num_samples
         self.pattern_path = str(pattern_path)
+        self.gaussian = gaussian
+        self.gaussian_sigma = float(gaussian_sigma)
 
         self.rng = np.random.default_rng(seed)
 
@@ -196,13 +202,22 @@ class PatternDataset(Dataset):
 
         y_discrete, x_discrete = np.unravel_index(indices, (self.h, self.w))
 
-        # Add Unif([-0.5, 0.5]) so that points are not centered on pixels
-        x_continuous = (
-            x_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
-        )
-        y_continuous = (
-            y_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
-        )
+        if self.gaussian:
+            # Each pixel is a Gaussian component centered at its pixel index.
+            x_continuous = x_discrete.astype(np.float32) + self.rng.normal(
+                0.0, self.gaussian_sigma, self.num_samples
+            )
+            y_continuous = y_discrete.astype(np.float32) + self.rng.normal(
+                0.0, self.gaussian_sigma, self.num_samples
+            )
+        else:
+            # Add Unif([-0.5, 0.5]) so that points are not centered on pixels.
+            x_continuous = (
+                x_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
+            )
+            y_continuous = (
+                y_discrete.astype(np.float32) + self.rng.random(self.num_samples) - 0.5
+            )
 
         x_norm = (x_continuous / self.w) * 2.0 - 1.0
         y_norm = 1.0 - (y_continuous / self.h) * 2.0
