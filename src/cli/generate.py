@@ -211,6 +211,11 @@ def generate(
         "--solver-T",
         help="Maximum time step T solver can be run with. Defaults to the model's predictor T.",
     ),
+    max_t: float | None = typer.Option(
+        None,
+        "--max-t",
+        help="Maximum time used by the sampling schedule. Defaults to the schedule-specific value.",
+    ),
     equation_name: EquationType = typer.Option(
         EquationType.probability_flow,
         "--equation",
@@ -256,6 +261,7 @@ def generate(
     logger.info(f"Equation: {equation_name.value}")
     logger.info(f"Solver: {solver_name.value}")
     logger.info(f"Solver T: {solver_T if solver_T is not None else 'default'}")
+    logger.info(f"Sampling max t: {max_t if max_t is not None else 'default'}")
     parsed_class_idx = parse_class_idx(class_idx)
 
     sources = int(bool(model_path)) + int(bool(model_id)) + int(pretrained)
@@ -381,26 +387,35 @@ def generate(
     generator_kwargs: dict[str, Any] = {}
     generator_kwargs["variance_exploding"] = variance_exploding
 
+    sampling_schedule_kwargs = {} if max_t is None else {"max_t": max_t}
+
     match sampling_schedule:
         case SamplingScheduleType.edm:
+            edm_kwargs = sampling_schedule_kwargs | (
+                {} if max_t is None else {"sigma_max": max_t}
+            )
             generator_kwargs["timesteps"] = (
-                EDMSamplingSchedule(T=solver_T).get_timesteps(n_steps=n_steps).cuda()
+                EDMSamplingSchedule(T=solver_T, **edm_kwargs)
+                .get_timesteps(n_steps=n_steps)
+                .cuda()
             )
         case SamplingScheduleType.linear:
-            scheduler = LinearSamplingSchedule(T=solver_T)
-            generator_kwargs["timesteps"] = scheduler.get_timesteps(  # , max_t = ...
-                n_steps=n_steps
-            ).cuda()
-            logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
-        case SamplingScheduleType.quadratic:
-            scheduler = QuadraticSamplingSchedule(T=solver_T)
+            scheduler = LinearSamplingSchedule(T=solver_T, **sampling_schedule_kwargs)
             generator_kwargs["timesteps"] = scheduler.get_timesteps(
                 n_steps=n_steps
             ).cuda()
-            logger.warning(f"Remember to set correct max_t: {scheduler.max_t}")
+            logger.info(f"Sampling max t: {scheduler.max_t}")
+        case SamplingScheduleType.quadratic:
+            scheduler = QuadraticSamplingSchedule(T=solver_T, **sampling_schedule_kwargs)
+            generator_kwargs["timesteps"] = scheduler.get_timesteps(
+                n_steps=n_steps
+            ).cuda()
+            logger.info(f"Sampling max t: {scheduler.max_t}")
         case SamplingScheduleType.logsnr_linear:
             generator_kwargs["timesteps"] = (
-                LinearLogSNRSamplingSchedule(schedules=schedules, T=solver_T)
+                LinearLogSNRSamplingSchedule(
+                    schedules=schedules, T=solver_T, **sampling_schedule_kwargs
+                )
                 .get_timesteps(n_steps=n_steps)
                 .cuda()
             )
@@ -419,7 +434,9 @@ def generate(
                 else GaussKLUBOptimalSamplingSchedule
             )
             generator_kwargs["timesteps"] = (
-                optimal_cls(T=solver_T, c=c).get_timesteps(n_steps=n_steps).cuda()
+                optimal_cls(T=solver_T, c=c, **sampling_schedule_kwargs)
+                .get_timesteps(n_steps=n_steps)
+                .cuda()
             )
         case SamplingScheduleType.discrete:
             logger.info("n_steps is ignored. Using all steps supported by model.")
@@ -440,13 +457,12 @@ def generate(
 
     metadata = {
         "n_samples": n_samples,
-        "model_path": f"pretrained:{pretrained_preset}"
-        if pretrained
-        else model_path,
+        "model_path": f"pretrained:{pretrained_preset}" if pretrained else model_path,
         "class_idx": parsed_class_idx if pretrained else None,
         "solver": solver_name.value,
         "schedule": schedule.value,
         "sampling_schedule": sampling_schedule.value,
+        "max_t": max_t,
     }
     save_as_tensor = is_toy_dataset(dataset)
     if resume and save_as_tensor:

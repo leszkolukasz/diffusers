@@ -124,11 +124,41 @@ DATASET_CONFIGS: dict[DatasetType, DatasetConfig] = {
         1,
         kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral.png"},
     ),
+    DatasetType.pattern_spiral5: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/spiral5.png"},
+    ),
     DatasetType.pattern_x: DatasetConfig(
         PatternDataset,
         2,
         1,
         kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/x.png"},
+    ),
+    DatasetType.pattern_beehive: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/beehive.png"},
+    ),
+    DatasetType.pattern_gaussian_8x8: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_8x8.png"},
+    ),
+    DatasetType.pattern_gaussian_8x4: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_8x4.png"},
+    ),
+    DatasetType.pattern_gaussian_6x6: DatasetConfig(
+        PatternDataset,
+        2,
+        1,
+        kwargs={"num_samples": N_SAMPLES, "pattern_path": "assets/gaussian_6x6.png"},
     ),
 }
 

@@ -61,7 +61,12 @@ class DatasetType(str, Enum):
     food101 = "food101"
     ays_toy = "ays_toy"
     pattern_spiral = "pattern_spiral"
+    pattern_spiral5 = "pattern_spiral5"
     pattern_x = "pattern_x"
+    pattern_beehive = "pattern_beehive"
+    pattern_gaussian_8x8 = "pattern_gaussian_8x8"
+    pattern_gaussian_8x4 = "pattern_gaussian_8x4"
+    pattern_gaussian_6x6 = "pattern_gaussian_6x6"
 
 
 class ModelType(str, Enum):
