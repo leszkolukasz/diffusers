@@ -214,13 +214,9 @@ class AYSSamplingSchedule(SamplingSchedule):
             Timestep(self.timestep_config, steps.to(torch.float32)), n_steps
         ).reverse()
 
-        if append_zero:
-            result = Timestep(
-                self.timestep_config,
-                torch.cat(
-                    [result.steps, torch.tensor([0.0], device=result.steps.device)]
-                ),
-            )
+        result_steps = result.steps.clone()
+        result_steps[-1] = 0.0
+        result = Timestep(self.timestep_config, result_steps)
 
         self._save_final_state(result, stage, self.config.max_finetune_iter, n_steps)
 

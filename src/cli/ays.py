@@ -45,8 +45,20 @@ from src.schedule.sampling.ays import (
     AYSSamplingSchedule,
     CandidateSpacing,
 )
+from src.timestep import Timestep, TimestepConfig
 
 app = typer.Typer(help="Align Your Steps")
+
+
+def load_timesteps_file(path: str | Path) -> torch.Tensor:
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    steps = state.get("steps") if isinstance(state, dict) else state
+    steps = steps.float()
+    if steps[0] < steps[-1]:
+        steps = torch.flip(steps, dims=[0])
+    if not torch.all(steps[:-1] > steps[1:]):
+        raise ValueError(f"Timesteps in {path} must be strictly decreasing.")
+    return steps
 
 
 def build_baseline_steps(
@@ -132,6 +144,11 @@ def tune(
         SamplingScheduleType.edm,
         "--initial-schedule",
         help="Initial time sampling",
+    ),
+    initial_timesteps_path: str | None = typer.Option(
+        None,
+        "--initial-timesteps-path",
+        help="Path to a .pth with initial timesteps (overrides --initial-schedule).",
     ),
     max_t: float = typer.Option(
         80.0,
@@ -292,7 +309,23 @@ def tune(
         logger.info(f"Using VAE: {vae_model_id}")
         vae = VAE(model_id=vae_model_id, low_memory=vae_low_memory).cuda()
 
-    if initial_sampling_schedule == SamplingScheduleType.edm:
+    if initial_timesteps_path is not None:
+        try:
+            initial_steps = load_timesteps_file(initial_timesteps_path)
+        except (FileNotFoundError, TypeError, ValueError) as exc:
+            logger.error(str(exc))
+            raise typer.Exit(code=1) from exc
+        if len(initial_steps) != 11:
+            logger.error(
+                "--initial-timesteps-path must contain 11 timesteps for the 10-step stage."
+            )
+            raise typer.Exit(code=1)
+        logger.info(f"Using initial timesteps from: {initial_timesteps_path}")
+        initial_t = Timestep(
+            TimestepConfig(kind="continuous", T=solver_T),
+            initial_steps,
+        ).cuda()
+    elif initial_sampling_schedule == SamplingScheduleType.edm:
         initial_t = (
             EDMSamplingSchedule(T=solver_T, sigma_max=max_t)
             .get_timesteps(n_steps=10)
@@ -411,6 +444,11 @@ def plot(
         "--compare",
         help="Baseline(s) to compare. Repeat the option for multiple baselines.",
     ),
+    custom_timesteps_paths: list[str] = typer.Option(
+        [],
+        "--custom-timesteps-path",
+        help="Custom schedule file(s) to plot. Repeat for multiple schedules.",
+    ),
     schedule: ScheduleType = typer.Option(
         ScheduleType.edm,
         "--schedule",
@@ -458,7 +496,12 @@ def plot(
             max_t=max_t,
             c=c,
         )
-    except ValueError as exc:
+        custom_steps = {}
+        for path in custom_timesteps_paths:
+            steps = load_timesteps_file(path).numpy()[::-1]
+            custom_steps[Path(path).stem] = steps
+            logger.info(f"Loaded custom schedule: {path}")
+    except (FileNotFoundError, TypeError, ValueError) as exc:
         logger.error(str(exc))
         raise typer.Exit(code=1) from exc
 
@@ -470,6 +513,9 @@ def plot(
             "vs",
             safe_filename_part("-".join(baselines)),
         ]
+        if custom_steps:
+            parts.append("custom")
+            parts.append(safe_filename_part("-".join(custom_steps)))
         output = "_".join(parts) + ".png"
 
     plt.figure(figsize=(10, 6))
@@ -487,6 +533,17 @@ def plot(
             label=f"Baseline ({name.upper()})",
         )
 
+    for index, (name, steps) in enumerate(custom_steps.items()):
+        plt.plot(
+            range(len(steps)),
+            steps,
+            marker="x",
+            linestyle=":",
+            color=colormap((len(baselines) + index + 1) % 10),
+            alpha=0.9,
+            label=f"Custom ({name})",
+        )
+
     plt.plot(
         range(len(ays_steps)),
         ays_steps,
@@ -497,11 +554,13 @@ def plot(
         label=f"AYS (Stage {stage})",
     )
 
-    plt.title("AYS vs " + ", ".join(name.upper() for name in baselines))
+    title_parts = [name.upper() for name in baselines]
+    title_parts.extend(f"CUSTOM ({name})" for name in custom_steps)
+    plt.title("AYS vs " + ", ".join(title_parts))
     plt.xlabel("Step Index")
     plt.ylabel("Timestep (t)")
 
-    # plt.yscale("symlog", linthresh=1e-3)
+    plt.yscale("symlog", linthresh=1e-3)
 
     plt.grid(True, which="both", linestyle="--", linewidth=0.5)
     plt.legend()
