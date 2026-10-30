@@ -1,3 +1,6 @@
+import os
+import random
+import tempfile
 from pathlib import Path
 
 import typer
@@ -7,7 +10,12 @@ from loguru import logger
 from src.common import get_device, safe_filename_part
 from src.config import DatasetType
 from src.config.presets import DATASET_CONFIGS
-from src.fid import FIDEvaluator, FIDMetric, materialize_real_images
+from src.fid import (
+    VALID_EXTENSIONS,
+    FIDEvaluator,
+    FIDMetric,
+    materialize_real_images,
+)
 
 app = typer.Typer(help="Compute FID, CLIP-FID or KID")
 
@@ -47,7 +55,7 @@ def fid(
     precompute_num: int | None = typer.Option(
         None,
         "--precompute-num",
-        help="Limit precomputed reference images (default: all).",
+        help="Randomly sample this many reference images (default: all).",
     ),
     num_real: int = typer.Option(
         1000,
@@ -103,16 +111,52 @@ def fid(
         if cleanfid.test_stats_exists(name, "clean"):
             logger.info(f"Using existing clean-fid stats: {name}")
         else:
-            logger.info(f"Precomputing clean-fid stats: {name}")
-            cleanfid.make_custom_stats(
-                name,
-                str(real),
-                num=precompute_num,
-                mode="clean",
-                num_workers=num_workers,
-                batch_size=batch_size,
-                device=get_device(),
-            )
+            precompute_source = real
+            temp_dir = None
+            try:
+                if precompute_num is not None:
+                    if precompute_num < 1:
+                        logger.error("--precompute-num must be at least 1.")
+                        raise typer.Exit(code=1)
+
+                    files = sorted(
+                        file
+                        for file in real.rglob("*")
+                        if file.is_file()
+                        and file.suffix.lower() in VALID_EXTENSIONS
+                    )
+                    if precompute_num < len(files):
+                        temp_dir = tempfile.TemporaryDirectory()
+                        selected = random.Random(42).sample(files, precompute_num)
+                        for index, file in enumerate(selected):
+                            os.symlink(
+                                file.resolve(),
+                                Path(temp_dir.name) / f"{index:06d}{file.suffix.lower()}",
+                            )
+                        precompute_source = Path(temp_dir.name)
+                        logger.info(
+                            f"Using a random subset of {precompute_num} "
+                            f"images out of {len(files)}."
+                        )
+                    else:
+                        logger.info(
+                            f"--precompute-num >= number of images ({len(files)}); "
+                            "using all images."
+                        )
+
+                logger.info(f"Precomputing clean-fid stats: {name}")
+                cleanfid.make_custom_stats(
+                    name,
+                    str(precompute_source),
+                    num=None,
+                    mode="clean",
+                    num_workers=num_workers,
+                    batch_size=batch_size,
+                    device=get_device(),
+                )
+            finally:
+                if temp_dir is not None:
+                    temp_dir.cleanup()
 
         score = cleanfid.compute_fid(
             str(gen_path),

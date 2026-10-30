@@ -9,7 +9,7 @@ import torch
 from cleanfid import fid
 from loguru import logger
 from PIL import Image
-from torchvision import datasets
+from torchvision import datasets, transforms
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
 
@@ -165,11 +165,24 @@ def materialize_dataset_images(
         count = min(num_images, len(dataset))
         indices = list(range(count))
 
+    image_transform = transforms.Compose(
+        [
+            transforms.Resize(config.img_size),
+            transforms.CenterCrop(config.img_size),
+        ]
+    )
+
     for out_index, index in enumerate(tqdm(indices, desc="Materializing real images")):
         image, _ = dataset[index]
         if not isinstance(image, Image.Image):
             image = to_pil_image(image)
-        image.convert("RGB").save(out / f"{out_index:06d}.png")
+        image = image_transform(image.convert("RGB"))
+        image.save(out / f"{out_index:06d}.png")
+
+        if config.horizontal_flip:
+            image.transpose(Image.Transpose.FLIP_LEFT_RIGHT).save(
+                out / f"{out_index:06d}_flip.png"
+            )
 
     return out
 
@@ -186,6 +199,7 @@ def materialize_real_images(
         raise ValueError(f"Dataset '{dataset.value}' is not an image dataset")
 
     out_dir = Path(cache_dir) / dataset.value
+    required_images = num_images * (2 if config.horizontal_flip else 1)
     existing = (
         sorted(
             file
@@ -196,7 +210,7 @@ def materialize_real_images(
         else []
     )
 
-    if len(existing) >= num_images:
+    if len(existing) >= required_images:
         logger.info(f"Reusing cached real images from {out_dir}.")
         return out_dir
 

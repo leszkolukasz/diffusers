@@ -238,7 +238,6 @@ def tune(
             raise typer.Exit(code=1)
         logger.info(f"Loading local model from: {model_path}")
         model = Predictor.load_from_file(model_path).cuda()
-        model.load()
 
     metadata_schedule = schedule_from_metadata(model.metadata)
     if schedule is None:
