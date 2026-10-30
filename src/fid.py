@@ -35,7 +35,6 @@ class FIDEvaluator:
         gen_path: str | Path,
         *,
         image_size: int | None = None,
-        seed: int = 42,
         device: torch.device | None = None,
         num_workers: int = 4,
         batch_size: int = 32,
@@ -44,7 +43,6 @@ class FIDEvaluator:
         self.real_path = Path(real_path)
         self.gen_path = Path(gen_path)
         self.resize_to = (image_size, image_size) if image_size is not None else None
-        self.seed = seed
         self.num_workers = num_workers
         self.batch_size = batch_size
         self.verbose = verbose
@@ -65,20 +63,9 @@ class FIDEvaluator:
         if not real_files or not gen_files:
             raise ValueError("One of the directories contains no valid images.")
 
-        real_count = len(real_files)
-        gen_count = len(gen_files)
-
-        if metric in (FIDMetric.fid, FIDMetric.clip_fid):
-            n_samples = min(real_count, gen_count)
-            rng = random.Random(self.seed)
-            real_files = rng.sample(real_files, n_samples)
-            gen_files = rng.sample(gen_files, n_samples)
-            logger.info(
-                f"Balancing datasets to {n_samples} images "
-                f"({real_count} real, {gen_count} generated)."
-            )
-        else:
-            logger.info(f"Using all images: {real_count} real, {gen_count} generated.")
+        logger.info(
+            f"Using all images: {len(real_files)} real, {len(gen_files)} generated."
+        )
 
         with (
             tempfile.TemporaryDirectory() as tmp_real,

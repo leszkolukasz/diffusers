@@ -1,9 +1,10 @@
 from pathlib import Path
 
 import typer
+from cleanfid import fid as cleanfid
 from loguru import logger
 
-from src.common import get_device
+from src.common import get_device, safe_filename_part
 from src.config import DatasetType
 from src.config.presets import DATASET_CONFIGS
 from src.fid import FIDEvaluator, FIDMetric, materialize_real_images
@@ -33,6 +34,21 @@ def fid(
         "--metric",
         help="Metric to compute.",
     ),
+    precompute: bool = typer.Option(
+        False,
+        "--precompute",
+        help="Precompute clean-fid reference statistics before evaluating.",
+    ),
+    stats_name: str | None = typer.Option(
+        None,
+        "--stats-name",
+        help="Name for clean-fid custom statistics (default: dataset/path name).",
+    ),
+    precompute_num: int | None = typer.Option(
+        None,
+        "--precompute-num",
+        help="Limit precomputed reference images (default: all).",
+    ),
     num_real: int = typer.Option(
         1000,
         "--num-real",
@@ -42,11 +58,6 @@ def fid(
         None,
         "--image-size",
         help="Resize both sides to this size. Defaults to the dataset image size.",
-    ),
-    seed: int = typer.Option(
-        42,
-        "--seed",
-        help="Seed used when balancing real and generated images.",
     ),
     num_workers: int = typer.Option(
         4,
@@ -69,6 +80,52 @@ def fid(
         assert dataset is not None
         real = materialize_real_images(dataset, num_real)
 
+    if precompute:
+        if metric == FIDMetric.all:
+            metric = FIDMetric.fid
+            logger.info("Precomputed statistics support FID; computing FID only.")
+        if metric != FIDMetric.fid:
+            logger.error("--precompute supports only --metric fid.")
+            raise typer.Exit(code=1)
+        if dataset is not None and real_path is None:
+            logger.warning(
+                "Precompute uses materialized images; pass --real-path for the full dataset."
+            )
+        if precompute_num is None:
+            logger.warning(
+                "Precomputing all reference images can use a lot of RAM; "
+                "use --precompute-num to limit it."
+            )
+
+        name = stats_name or safe_filename_part(
+            dataset.value if dataset is not None else real.name
+        )
+        if cleanfid.test_stats_exists(name, "clean"):
+            logger.info(f"Using existing clean-fid stats: {name}")
+        else:
+            logger.info(f"Precomputing clean-fid stats: {name}")
+            cleanfid.make_custom_stats(
+                name,
+                str(real),
+                num=precompute_num,
+                mode="clean",
+                num_workers=num_workers,
+                batch_size=batch_size,
+                device=get_device(),
+            )
+
+        score = cleanfid.compute_fid(
+            str(gen_path),
+            dataset_name=name,
+            dataset_split="custom",
+            mode="clean",
+            device=get_device(),
+            num_workers=num_workers,
+            batch_size=batch_size,
+        )
+        logger.success(f"fid: {score:.8g}")
+        return
+
     if image_size is None and dataset is not None:
         image_size = DATASET_CONFIGS[dataset].img_size
 
@@ -83,7 +140,6 @@ def fid(
         real_path=real,
         gen_path=gen_path,
         image_size=image_size,
-        seed=seed,
         device=get_device(),
         num_workers=num_workers,
         batch_size=batch_size,
